@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -97,7 +96,6 @@ fun ProgressScreen(vm: AppViewModel) {
             }
             TrendCard(metric, points)
             DailyRuleNote()
-            WeightHeatmapCard(history)
             MeasurementCalendar(history, vm::deleteWeight)
         }
         if (all.isEmpty()) {
@@ -226,102 +224,6 @@ private fun DailyRuleNote() {
 }
 
 @Composable
-private fun WeightHeatmapCard(history: List<DailyWeightHistory>) {
-    val latestYear = history.firstOrNull()?.date?.year ?: LocalDate.now().year
-    var year by rememberSaveable { mutableIntStateOf(latestYear) }
-    var initialized by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(latestYear) {
-        if (!initialized && history.isNotEmpty()) {
-            year = latestYear
-            initialized = true
-        }
-    }
-    val range = remember(history) { normalizedWeightRange(history) }
-    val weightsByDate = remember(history) { history.associate { it.date to it.latest.weightKg } }
-    val years = remember(history) { history.map { it.date.year }.toSet() }
-    val minimumYear = years.minOrNull() ?: year
-    val maximumYear = maxOf(years.maxOrNull() ?: year, LocalDate.now().year)
-
-    Card(
-        Modifier.fillMaxWidth().padding(20.dp),
-        shape = RoundedCornerShape(22.dp),
-    ) {
-        Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("每日体重热图", fontWeight = FontWeight.Bold)
-                    Text(
-                        "全量数据统一归一化，颜色越深代表体重越高",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = { if (year > minimumYear) year-- }, enabled = year > minimumYear) {
-                    Icon(Icons.Outlined.ChevronLeft, "上一年")
-                }
-                Text("${year}年", fontWeight = FontWeight.SemiBold)
-                IconButton(onClick = { if (year < maximumYear) year++ }, enabled = year < maximumYear) {
-                    Icon(Icons.Outlined.ChevronRight, "下一年")
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            YearWeightHeatmap(year, weightsByDate, range, Modifier.fillMaxWidth().height(62.dp))
-            Row(
-                Modifier.fillMaxWidth().padding(top = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    range?.let { "${it.minimum.one()}–${it.maximum.one()} kg" } ?: "暂无体重数据",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.weight(1f))
-                Text("轻", style = MaterialTheme.typography.labelSmall)
-                repeat(5) { level ->
-                    Box(
-                        Modifier.padding(start = 3.dp).size(11.dp).clip(RoundedCornerShape(3.dp))
-                            .background(heatColor(level / 4f)),
-                    )
-                }
-                Text("重", Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelSmall)
-            }
-        }
-    }
-}
-
-@Composable
-private fun YearWeightHeatmap(
-    year: Int,
-    weightsByDate: Map<LocalDate, Double>,
-    range: NormalizedWeightRange?,
-    modifier: Modifier,
-) {
-    val missingColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
-    Canvas(modifier) {
-        val first = LocalDate.of(year, 1, 1)
-        val dayOffset = first.dayOfWeek.value - 1
-        val daysInYear = first.lengthOfYear()
-        val weeks = (dayOffset + daysInYear + 6) / 7
-        val gap = 2.dp.toPx()
-        val cell = ((size.width - gap * (weeks - 1)) / weeks).coerceAtLeast(1f)
-        repeat(daysInYear) { dayIndex ->
-            val date = first.plusDays(dayIndex.toLong())
-            val gridIndex = dayOffset + dayIndex
-            val column = gridIndex / 7
-            val row = gridIndex % 7
-            val weight = weightsByDate[date]
-            val color = if (weight == null || range == null) missingColor else heatColor(range.level(weight))
-            drawRoundRect(
-                color = color,
-                topLeft = Offset(column * (cell + gap), row * (cell + gap)),
-                size = Size(cell, cell),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(cell * 0.22f),
-            )
-        }
-    }
-}
-
-@Composable
 private fun MeasurementCalendar(
     history: List<DailyWeightHistory>,
     delete: (WeightRecord) -> Unit,
@@ -341,6 +243,7 @@ private fun MeasurementCalendar(
     val selectedDate = LocalDate.ofEpochDay(selectedEpochDay)
     val historyByDate = remember(history) { history.associateBy(DailyWeightHistory::date) }
     val selectedHistory = historyByDate[selectedDate]
+    val normalizedRange = remember(history) { normalizedWeightRange(history) }
 
     fun moveMonth(delta: Int) {
         monthKey += delta
@@ -354,6 +257,17 @@ private fun MeasurementCalendar(
         shape = RoundedCornerShape(22.dp),
     ) {
         Column(Modifier.padding(vertical = 18.dp)) {
+            Text(
+                "称重日历",
+                Modifier.padding(horizontal = 18.dp),
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "体重底色按全部历史记录统一换算，颜色越深代表体重越高",
+                Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -371,6 +285,7 @@ private fun MeasurementCalendar(
                 month = month,
                 selectedDate = selectedDate,
                 historyByDate = historyByDate,
+                normalizedRange = normalizedRange,
                 onSelect = { selectedEpochDay = it.toEpochDay() },
             )
             HorizontalDivider(Modifier.padding(top = 10.dp))
@@ -399,6 +314,7 @@ private fun CalendarMonthGrid(
     month: YearMonth,
     selectedDate: LocalDate,
     historyByDate: Map<LocalDate, DailyWeightHistory>,
+    normalizedRange: NormalizedWeightRange?,
     onSelect: (LocalDate) -> Unit,
 ) {
     val weekdayTitles = listOf("一", "二", "三", "四", "五", "六", "日")
@@ -428,6 +344,7 @@ private fun CalendarMonthGrid(
                         CalendarDay(
                             date = date,
                             weightKg = day?.latest?.weightKg,
+                            weightLevel = day?.latest?.weightKg?.let { normalizedRange?.level(it) },
                             recordCount = day?.records?.size ?: 0,
                             selected = date == selectedDate,
                             onClick = { onSelect(date) },
@@ -444,6 +361,7 @@ private fun CalendarMonthGrid(
 private fun CalendarDay(
     date: LocalDate,
     weightKg: Double?,
+    weightLevel: Float?,
     recordCount: Int,
     selected: Boolean,
     onClick: () -> Unit,
@@ -466,12 +384,17 @@ private fun CalendarDay(
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         )
         if (weightKg != null) {
-            Text(
-                weightKg.one(),
-                style = MaterialTheme.typography.labelSmall,
-                color = Emerald,
-                maxLines = 1,
-            )
+            val level = weightLevel ?: 0.5f
+            Surface(color = heatColor(level), shape = RoundedCornerShape(7.dp)) {
+                Text(
+                    weightKg.one(),
+                    Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (level >= 0.55f) Color.White else Color(0xFF174B3B),
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+            }
         } else {
             Spacer(Modifier.height(14.dp))
         }

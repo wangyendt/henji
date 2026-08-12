@@ -24,8 +24,13 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
     val records by vm.weights.collectAsState()
     val meals by vm.meals.collectAsState()
     val settings by vm.settings.collectAsState()
-    val latest = records.firstOrNull()
-    val previous = records.getOrNull(1)
+    val dailyHistory = remember(records) { com.qingheng.weight.data.groupWeightRecordsByDay(records) }
+    val latest = dailyHistory.firstOrNull()?.latest
+    val previous = dailyHistory.getOrNull(1)?.latest
+    val latestBmi = remember(records) { records.firstNotNullOfOrNull { it.bmi } }
+    val latestBodyFat = remember(records) { records.firstNotNullOfOrNull { it.bodyFatPercent } }
+    val latestBodyWater = remember(records) { records.firstNotNullOfOrNull { it.bodyWaterPercent } }
+    val latestSkeletalMuscle = remember(records) { records.firstNotNullOfOrNull { it.skeletalMusclePercent } }
     val todayStart = remember { java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0) }.timeInMillis }
     val todayCalories = meals.filter { it.createdAt >= todayStart }.sumOf { (it.calorieLow + it.calorieHigh) / 2 }
 
@@ -62,12 +67,12 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
         Spacer(Modifier.height(10.dp))
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("BMI", latest?.bmi?.one() ?: "--", modifier = Modifier.weight(1f))
-                MetricCard("体脂率", latest?.bodyFatPercent?.one() ?: "--", "%", Amber, Modifier.weight(1f))
+                MetricCard("BMI", latestBmi?.one() ?: "--", modifier = Modifier.weight(1f))
+                MetricCard("体脂率", latestBodyFat?.one() ?: "--", "%", Amber, Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("体水分", latest?.bodyWaterPercent?.one() ?: "--", "%", Color(0xFF3189C9), Modifier.weight(1f))
-                MetricCard("骨骼肌率", latest?.skeletalMusclePercent?.one() ?: "--", "%", Color(0xFF7C65C1), Modifier.weight(1f))
+                MetricCard("体水分", latestBodyWater?.one() ?: "--", "%", Color(0xFF3189C9), Modifier.weight(1f))
+                MetricCard("骨骼肌率", latestSkeletalMuscle?.one() ?: "--", "%", Color(0xFF7C65C1), Modifier.weight(1f))
             }
         }
         Card(Modifier.fillMaxWidth().padding(20.dp), shape = RoundedCornerShape(20.dp)) {
