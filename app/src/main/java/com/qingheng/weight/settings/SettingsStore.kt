@@ -6,6 +6,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.qingheng.weight.data.ActivityLevel
 import com.qingheng.weight.data.Sex
 import com.qingheng.weight.data.UserProfile
+import com.qingheng.weight.data.WeightUnit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -15,6 +16,7 @@ data class AppSettings(
     val profile: UserProfile = UserProfile(),
     val serviceUrl: String = "http://10.0.2.2:7777",
     val serviceToken: String = "",
+    val weightUnit: WeightUnit = WeightUnit.KILOGRAM,
 )
 
 class SettingsStore(private val context: Context) {
@@ -26,6 +28,7 @@ class SettingsStore(private val context: Context) {
         val goalWeight = doublePreferencesKey("goal_weight")
         val serviceUrl = stringPreferencesKey("service_url")
         val serviceToken = stringPreferencesKey("service_token")
+        val weightUnit = stringPreferencesKey("weight_unit")
     }
 
     val values: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -39,6 +42,9 @@ class SettingsStore(private val context: Context) {
             ),
             serviceUrl = p[Keys.serviceUrl] ?: "http://10.0.2.2:7777",
             serviceToken = p[Keys.serviceToken] ?: "",
+            weightUnit = runCatching {
+                WeightUnit.valueOf(p[Keys.weightUnit] ?: WeightUnit.KILOGRAM.name)
+            }.getOrDefault(WeightUnit.KILOGRAM),
         )
     }
 
@@ -50,5 +56,9 @@ class SettingsStore(private val context: Context) {
 
     suspend fun updateService(url: String, token: String) = context.dataStore.edit {
         it[Keys.serviceUrl] = url.trimEnd('/'); it[Keys.serviceToken] = token
+    }
+
+    suspend fun updateWeightUnit(unit: WeightUnit) = context.dataStore.edit {
+        it[Keys.weightUnit] = unit.name
     }
 }

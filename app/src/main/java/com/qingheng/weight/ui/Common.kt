@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qingheng.weight.data.WeightUnit
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -35,3 +36,7 @@ import java.util.*
 fun Long.asDate(pattern: String = "M月d日 HH:mm"): String = SimpleDateFormat(pattern, Locale.CHINA).format(Date(this))
 fun Double.one() = String.format(Locale.CHINA, "%.1f", this)
 
+fun WeightUnit.valueFromKg(valueKg: Double): String = fromKilograms(valueKg).one()
+fun WeightUnit.weightFromKg(valueKg: Double): String = "${valueFromKg(valueKg)} $symbol"
+fun WeightUnit.signedWeightFromKg(valueKg: Double): String =
+    "${if (valueKg > 0) "+" else ""}${weightFromKg(valueKg)}"

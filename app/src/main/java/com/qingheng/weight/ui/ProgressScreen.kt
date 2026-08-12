@@ -49,6 +49,8 @@ private val rangeOptions = listOf(
 @Composable
 fun ProgressScreen(vm: AppViewModel) {
     val all by vm.weights.collectAsState()
+    val settings by vm.settings.collectAsState()
+    val unit = settings.weightUnit
     val history = remember(all) { groupWeightRecordsByDay(all) }
     var metricName by rememberSaveable { mutableStateOf(TrendMetric.WEIGHT.name) }
     var rangeIndex by rememberSaveable { mutableIntStateOf(1) }
@@ -94,9 +96,9 @@ fun ProgressScreen(vm: AppViewModel) {
                     ) { Text(option.title) }
                 }
             }
-            TrendCard(metric, points)
+            TrendCard(metric, points, unit)
             DailyRuleNote()
-            MeasurementCalendar(history, vm::deleteWeight)
+            MeasurementCalendar(history, unit, vm::deleteWeight)
         }
         if (all.isEmpty()) {
             item {
@@ -111,7 +113,7 @@ fun ProgressScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun TrendCard(metric: TrendMetric, points: List<DailyMetricPoint>) {
+private fun TrendCard(metric: TrendMetric, points: List<DailyMetricPoint>, unit: WeightUnit) {
     val first = points.firstOrNull()
     val latest = points.lastOrNull()
     val change = if (first != null && latest != null && first != latest) latest.value - first.value else null
@@ -131,7 +133,7 @@ private fun TrendCard(metric: TrendMetric, points: List<DailyMetricPoint>) {
                 }
                 if (latest != null) {
                     Text(
-                        metric.format(latest.value),
+                        metric.format(latest.value, unit),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = Emerald,
@@ -158,7 +160,7 @@ private fun TrendCard(metric: TrendMetric, points: List<DailyMetricPoint>) {
                 when {
                     points.isEmpty() -> "这段时间还没有${metric.title}数据"
                     change == null -> "1 个有数据的日期"
-                    else -> "${points.size} 个有数据的日期 · 净变化 ${change.signed(metric)}"
+                    else -> "${points.size} 个有数据的日期 · 净变化 ${change.signed(metric, unit)}"
                 },
                 Modifier.padding(top = 8.dp),
                 style = MaterialTheme.typography.bodySmall,
@@ -226,6 +228,7 @@ private fun DailyRuleNote() {
 @Composable
 private fun MeasurementCalendar(
     history: List<DailyWeightHistory>,
+    unit: WeightUnit,
     delete: (WeightRecord) -> Unit,
 ) {
     val latestDate = history.firstOrNull()?.date ?: LocalDate.now()
@@ -286,6 +289,7 @@ private fun MeasurementCalendar(
                 selectedDate = selectedDate,
                 historyByDate = historyByDate,
                 normalizedRange = normalizedRange,
+                unit = unit,
                 onSelect = { selectedEpochDay = it.toEpochDay() },
             )
             HorizontalDivider(Modifier.padding(top = 10.dp))
@@ -302,7 +306,7 @@ private fun MeasurementCalendar(
                 )
             } else {
                 selectedHistory.records.forEach { record ->
-                    MeasurementRow(record, delete)
+                    MeasurementRow(record, unit, delete)
                 }
             }
         }
@@ -315,6 +319,7 @@ private fun CalendarMonthGrid(
     selectedDate: LocalDate,
     historyByDate: Map<LocalDate, DailyWeightHistory>,
     normalizedRange: NormalizedWeightRange?,
+    unit: WeightUnit,
     onSelect: (LocalDate) -> Unit,
 ) {
     val weekdayTitles = listOf("一", "二", "三", "四", "五", "六", "日")
@@ -345,6 +350,7 @@ private fun CalendarMonthGrid(
                             date = date,
                             weightKg = day?.latest?.weightKg,
                             weightLevel = day?.latest?.weightKg?.let { normalizedRange?.level(it) },
+                            unit = unit,
                             recordCount = day?.records?.size ?: 0,
                             selected = date == selectedDate,
                             onClick = { onSelect(date) },
@@ -362,6 +368,7 @@ private fun CalendarDay(
     date: LocalDate,
     weightKg: Double?,
     weightLevel: Float?,
+    unit: WeightUnit,
     recordCount: Int,
     selected: Boolean,
     onClick: () -> Unit,
@@ -387,7 +394,7 @@ private fun CalendarDay(
             val level = weightLevel ?: 0.5f
             Surface(color = heatColor(level), shape = RoundedCornerShape(7.dp)) {
                 Text(
-                    weightKg.one(),
+                    unit.valueFromKg(weightKg),
                     Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (level >= 0.55f) Color.White else Color(0xFF174B3B),
@@ -402,7 +409,7 @@ private fun CalendarDay(
 }
 
 @Composable
-private fun MeasurementRow(record: WeightRecord, delete: (WeightRecord) -> Unit) {
+private fun MeasurementRow(record: WeightRecord, unit: WeightUnit, delete: (WeightRecord) -> Unit) {
     var expanded by rememberSaveable(record.id) { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().clickable { expanded = !expanded }
@@ -410,7 +417,7 @@ private fun MeasurementRow(record: WeightRecord, delete: (WeightRecord) -> Unit)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("${record.weightKg.one()} kg", fontWeight = FontWeight.SemiBold)
+                Text(unit.weightFromKg(record.weightKg), fontWeight = FontWeight.SemiBold)
                 Text(
                     buildList {
                         add(record.measuredAt.asDate("HH:mm"))
@@ -425,16 +432,16 @@ private fun MeasurementRow(record: WeightRecord, delete: (WeightRecord) -> Unit)
             IconButton(onClick = { delete(record) }) { Icon(Icons.Outlined.Delete, "删除") }
         }
         if (expanded) {
-            RecordMetricDetails(record)
+            RecordMetricDetails(record, unit)
         }
     }
     HorizontalDivider(Modifier.padding(horizontal = 18.dp))
 }
 
 @Composable
-private fun RecordMetricDetails(record: WeightRecord) {
+private fun RecordMetricDetails(record: WeightRecord, unit: WeightUnit) {
     val metrics = TrendMetric.values().mapNotNull { metric ->
-        metric.valueOf(record)?.let { metric.title to metric.format(it) }
+        metric.valueOf(record)?.let { metric.title to metric.format(it, unit) }
     }
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
@@ -454,7 +461,8 @@ private fun RecordMetricDetails(record: WeightRecord) {
     }
 }
 
-private fun TrendMetric.format(value: Double): String {
+private fun TrendMetric.format(value: Double, weightUnit: WeightUnit): String {
+    if (isMass) return weightUnit.weightFromKg(value)
     val number = when (this) {
         TrendMetric.BMR, TrendMetric.BODY_AGE -> value.roundToInt().toString()
         else -> value.one()
@@ -462,8 +470,9 @@ private fun TrendMetric.format(value: Double): String {
     return if (unit.isBlank()) number else "$number $unit"
 }
 
-private fun Double.signed(metric: TrendMetric): String =
-    "${if (this > 0) "+" else ""}${metric.format(this)}"
+private fun Double.signed(metric: TrendMetric, weightUnit: WeightUnit): String =
+    if (metric.isMass) weightUnit.signedWeightFromKg(this)
+    else "${if (this > 0) "+" else ""}${metric.format(this, weightUnit)}"
 
 private fun heatColor(level: Float): Color = lerp(
     Color(0xFFDDF4EA),

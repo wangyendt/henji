@@ -47,6 +47,44 @@ class WeightHistoryTest {
         assertNull(normalizedWeightRange(emptyList()))
     }
 
+    @Test
+    fun `dashboard summary uses daily values for earliest thirty day and seven day changes`() {
+        val records = listOf(
+            record("oldest", "2026-06-01T08:00", 100.0),
+            record("thirty", "2026-07-15T08:00", 96.0),
+            record("week", "2026-08-06T08:00", 92.0),
+            record("current", "2026-08-13T08:00", 90.0),
+        )
+
+        val summary = dashboardWeightSummary(groupWeightRecordsByDay(records, zone), 80.0)!!
+
+        assertEquals(-10.0, summary.earliestChangeKg, 0.001)
+        assertEquals(-6.0, summary.thirtyDayChangeKg, 0.001)
+        assertEquals(-2.0, summary.sevenDayChangeKg, 0.001)
+        assertEquals(0.0, summary.requestedPercentage, 0.001)
+        assertEquals(10.0, summary.remainingToGoalKg, 0.001)
+    }
+
+    @Test
+    fun `requested percentage is zero when earliest equals goal`() {
+        val records = listOf(
+            record("oldest", "2026-08-01T08:00", 90.0),
+            record("current", "2026-08-13T08:00", 95.0),
+        )
+
+        val summary = dashboardWeightSummary(groupWeightRecordsByDay(records, zone), 90.0)!!
+
+        assertEquals(0.0, summary.requestedPercentage, 0.001)
+        assertEquals(5.0, summary.remainingToGoalKg, 0.001)
+    }
+
+    @Test
+    fun `weight unit converts both directions`() {
+        assertEquals(150.0, WeightUnit.JIN.fromKilograms(75.0), 0.001)
+        assertEquals(75.0, WeightUnit.JIN.toKilograms(150.0), 0.001)
+        assertEquals(WeightUnit.JIN, WeightUnit.KILOGRAM.other())
+    }
+
     private fun record(
         id: String,
         time: String,

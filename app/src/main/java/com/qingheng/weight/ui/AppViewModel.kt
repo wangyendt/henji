@@ -22,7 +22,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val healthSyncState = MutableStateFlow<HealthSyncState>(HealthSyncState.Checking)
 
     fun addManualWeight(weight: Double) = viewModelScope.launch {
-        if (weight in 5.0..350.0) app.repository.saveManualWeight(weight, settings.value.profile)
+        val weightKg = settings.value.weightUnit.toKilograms(weight)
+        if (weightKg in 5.0..350.0) app.repository.saveManualWeight(weightKg, settings.value.profile)
     }
 
     fun importFitdaysHistory(uri: Uri) = viewModelScope.launch {
@@ -79,6 +80,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateProfile(profile: UserProfile) = viewModelScope.launch { app.settings.updateProfile(profile) }
     fun updateService(url: String, token: String) = viewModelScope.launch { app.settings.updateService(url, token) }
+    fun toggleWeightUnit() = viewModelScope.launch {
+        app.settings.updateWeightUnit(settings.value.weightUnit.other())
+    }
     fun deleteWeight(record: WeightRecord) = viewModelScope.launch { app.repository.deleteWeight(record) }
     fun deleteMeal(record: MealRecord) = viewModelScope.launch { app.repository.deleteMeal(record) }
     suspend fun saveMeal(record: MealRecord) = app.repository.saveMeal(record)

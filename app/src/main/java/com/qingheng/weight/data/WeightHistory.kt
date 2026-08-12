@@ -3,6 +3,8 @@ package com.qingheng.weight.data
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlin.math.abs
+import kotlin.math.max
 
 enum class TrendMetric(
     val title: String,
@@ -22,6 +24,10 @@ enum class TrendMetric(
     BONE_MASS("骨量", "kg", { it.boneMassKg }),
     PROTEIN("蛋白质", "%", { it.proteinPercent }),
     BODY_AGE("身体年龄", "岁", { it.bodyAge?.toDouble() }),
+    ;
+
+    val isMass: Boolean
+        get() = this == WEIGHT || this == FAT_FREE_MASS || this == MUSCLE_MASS || this == BONE_MASS
 }
 
 data class DailyWeightHistory(
@@ -78,6 +84,48 @@ fun normalizedWeightRange(days: List<DailyWeightHistory>): NormalizedWeightRange
     return NormalizedWeightRange(
         minimum = days.minOf { it.latest.weightKg },
         maximum = days.maxOf { it.latest.weightKg },
+    )
+}
+
+data class DashboardWeightSummary(
+    val currentKg: Double,
+    val earliestChangeKg: Double,
+    val thirtyDayChangeKg: Double,
+    val sevenDayChangeKg: Double,
+    val requestedPercentage: Double,
+    val remainingToGoalKg: Double,
+)
+
+fun dashboardWeightSummary(
+    days: List<DailyWeightHistory>,
+    goalWeightKg: Double,
+): DashboardWeightSummary? {
+    val currentDay = days.maxByOrNull(DailyWeightHistory::date) ?: return null
+    val earliestDay = days.minByOrNull(DailyWeightHistory::date) ?: return null
+    val currentKg = currentDay.latest.weightKg
+    val earliestKg = earliestDay.latest.weightKg
+
+    fun changeWithin(periodDays: Long): Double {
+        val cutoff = currentDay.date.minusDays(periodDays)
+        val baseline = days.filter { !it.date.isBefore(cutoff) }
+            .minByOrNull(DailyWeightHistory::date)?.latest?.weightKg ?: currentKg
+        return currentKg - baseline
+    }
+
+    val denominator = earliestKg - goalWeightKg
+    val requestedPercentage = if (abs(denominator) < 0.000_001) {
+        0.0
+    } else {
+        max(0.0, (currentKg - earliestKg) / denominator) * 100.0
+    }
+
+    return DashboardWeightSummary(
+        currentKg = currentKg,
+        earliestChangeKg = currentKg - earliestKg,
+        thirtyDayChangeKg = changeWithin(30),
+        sevenDayChangeKg = changeWithin(7),
+        requestedPercentage = requestedPercentage,
+        remainingToGoalKg = max(0.0, currentKg - goalWeightKg),
     )
 }
 

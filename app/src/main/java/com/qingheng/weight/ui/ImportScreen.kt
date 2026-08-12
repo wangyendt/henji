@@ -22,7 +22,9 @@ fun ImportScreen(
 ) {
     val importState by vm.fitdaysImportState.collectAsState()
     val healthState by vm.healthSyncState.collectAsState()
-    var manual by remember { mutableStateOf("") }
+    val settings by vm.settings.collectAsState()
+    val unit = settings.weightUnit
+    var manual by remember(unit) { mutableStateOf("") }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { ScreenHeader("导入身体数据", "从 Fitdays 导入完整历史记录") }
@@ -93,7 +95,7 @@ fun ImportScreen(
                 OutlinedTextField(
                     manual,
                     { manual = it.filter { char -> char.isDigit() || char == '.' } },
-                    label = { Text("体重 kg") },
+                    label = { Text("体重 ${unit.symbol}") },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
