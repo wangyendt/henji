@@ -1,6 +1,8 @@
 package com.qingheng.weight
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -27,14 +29,54 @@ class MainActivity : ComponentActivity() {
         if (scanAfterPermission && result.values.all { it }) viewModel.startScan()
         scanAfterPermission = false
     }
+    private val fitdaysFileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            runCatching { contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            viewModel.importFitdaysHistory(it)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { QingHengTheme { QingHengRoot(viewModel, ::requestScan) } }
+        handleSharedFitdaysFile(intent)
+        setContent {
+            QingHengTheme {
+                QingHengRoot(viewModel, ::requestScan, ::chooseFitdaysFile, ::openFitdays)
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSharedFitdaysFile(intent)
+    }
+
+    private fun chooseFitdaysFile() = fitdaysFileLauncher.launch(
+        arrayOf("text/csv", "application/csv", "application/vnd.ms-excel", "application/octet-stream")
+    )
+
+    private fun openFitdays() {
+        packageManager.getLaunchIntentForPackage("cn.fitdays.fitdays")?.let(::startActivity)
+    }
+
+    private fun handleSharedFitdaysFile(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val uri = if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+        uri?.let(viewModel::importFitdaysHistory)
     }
 
     private fun requestScan() {
-        val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        )
         else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (permissions.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) viewModel.startScan()
         else { scanAfterPermission = true; permissionLauncher.launch(permissions) }
@@ -44,7 +86,12 @@ class MainActivity : ComponentActivity() {
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
 
 @Composable
-private fun QingHengRoot(vm: AppViewModel, requestScan: () -> Unit) {
+private fun QingHengRoot(
+    vm: AppViewModel,
+    requestScan: () -> Unit,
+    chooseFitdaysFile: () -> Unit,
+    openFitdays: () -> Unit,
+) {
     val nav = rememberNavController()
     val destinations = listOf(
         Destination("home", "首页", Icons.Outlined.Home), Destination("progress", "趋势", Icons.Outlined.ShowChart),
@@ -68,7 +115,7 @@ private fun QingHengRoot(vm: AppViewModel, requestScan: () -> Unit) {
         NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
             composable("home") { DashboardScreen(vm, { nav.navigate("measure") }, { nav.navigate("meals") }) }
             composable("progress") { ProgressScreen(vm) }
-            composable("measure") { MeasureScreen(vm, requestScan) }
+            composable("measure") { MeasureScreen(vm, requestScan, chooseFitdaysFile, openFitdays) }
             composable("meals") { MealsScreen(vm) }
             composable("settings") { SettingsScreen(vm) }
         }

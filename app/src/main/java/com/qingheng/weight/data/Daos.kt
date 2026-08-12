@@ -15,10 +15,21 @@ interface WeightDao {
     @Query("SELECT * FROM weight_records ORDER BY measuredAt DESC LIMIT 1")
     suspend fun latest(): WeightRecord?
 
+    @Query("SELECT * FROM weight_records WHERE source = 'bluetooth' AND measuredAt >= :after AND ABS(weightKg - :weightKg) < 0.05 ORDER BY measuredAt DESC")
+    suspend fun recentBluetoothMeasurements(weightKg: Double, after: Long): List<WeightRecord>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: WeightRecord)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(records: List<WeightRecord>)
+
+    @Query("SELECT id FROM weight_records WHERE id IN (:ids)")
+    suspend fun existingIds(ids: List<String>): List<String>
+
     @Delete suspend fun delete(record: WeightRecord)
+
+    @Delete suspend fun delete(records: List<WeightRecord>)
 }
 
 @Dao
@@ -31,4 +42,3 @@ interface MealDao {
 
     @Delete suspend fun delete(record: MealRecord)
 }
-

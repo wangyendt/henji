@@ -40,8 +40,73 @@ class ScaleProtocolTest {
         assertTrue(value.isStable)
     }
 
+    @Test fun parsesCompactIcomonFrameCapturedFromFitdaysScale() {
+        val frame = hexBytes("BF000700A203000244DC0007")
+        val value = IcomonFrameAssembler().accept(frame, profile)
+        assertNotNull(value)
+        assertEquals(148.7, value!!.weightKg, 0.001)
+        assertTrue(value.isStable)
+    }
+
+    @Test fun combinesScaleNewWeightAndImpedanceFrames() {
+        val assembler = IcomonFrameAssembler()
+        val weight = assembler.accept(hexBytes("BF000700A203000244DC0007"), profile)
+        val body = assembler.accept(hexBytes("C0000500A60200000008"), profile)
+
+        assertEquals(148.7, weight!!.weightKg, 0.001)
+        assertNotNull(body)
+        assertEquals(148.7, body!!.weightKg, 0.001)
+        assertEquals(512.0, body.impedanceOhm!!, 0.001)
+        assertTrue(body.isStable)
+        assertFalse(body.isEstimated)
+    }
+
+    @Test fun buildsIcomonAckFrameUsedToStartTheSession() {
+        val frame = IcomonCommandSession().ack().single()
+
+        assertEquals("000300B000000000000000000000000000000010", frame.hex())
+    }
+
+    @Test fun buildsScaleNewSetupFramesCapturedFromOfficialFitdaysEncoder() {
+        val frames = IcomonCommandSession().scaleNewSetup(unixTimeSeconds = 0)
+
+        assertEquals(listOf("AC20FE060000CCD0", "AC2000000000C0C0"), frames.map(ByteArray::hex))
+        frames.forEach { frame ->
+            assertEquals(frame.sliceArray(2..6).sumOf { it.u() } and 0xFF, frame.last().u())
+        }
+    }
+
+    @Test fun buildsIcomonProfileHeartbeatFromTheCurrentUser() {
+        val encoder = IcomonCommandSession()
+        val frame = encoder.sync(
+            profile = profile,
+            weightKg = 70.5,
+            unixTimeSeconds = 0x12345678,
+            stabilized = true,
+        ).single()
+
+        assertEquals(20, frame.size)
+        assertEquals(0xBA, frame[3].u())
+        assertEquals("12345678", frame.sliceArray(4..7).hex())
+        assertEquals("0078", frame.sliceArray(8..9).hex())
+        assertEquals(175, frame[14].u())
+        assertEquals(0x9B8A, frame.u16be(15))
+        assertEquals(0xA4, frame[17].u()) // 36 years old, male
+        assertEquals(0x2F, frame[18].u())
+        assertEquals(frame.sliceArray(3..18).sumOf { it.u() } and 0x1F, frame[19].u())
+    }
+
+    @Test fun detectsIcomonControlFramesThatRequireAnAck() {
+        assertTrue(IcomonFrameAssembler.requiresAck(hexBytes("000300A000000000000000000000000000000000")))
+        assertTrue(IcomonFrameAssembler.requiresAck(hexBytes("000600A3190000FD84000000000000000000001D")))
+        assertFalse(IcomonFrameAssembler.requiresAck(hexBytes("BF000700A203000244DC0007")))
+    }
+
     @Test fun rejectsImplausibleValues() {
         assertNull(ScaleProtocol.parseStandardWeight(byteArrayOf(0x00, 0x01, 0x00), profile))
     }
-}
 
+    private fun hexBytes(value: String) = ByteArray(value.length / 2) { index ->
+        value.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+    }
+}

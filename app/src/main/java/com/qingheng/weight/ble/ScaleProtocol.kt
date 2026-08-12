@@ -2,9 +2,12 @@ package com.qingheng.weight.ble
 
 import com.qingheng.weight.data.BodyCompositionCalculator
 import com.qingheng.weight.data.BodyMetrics
+import com.qingheng.weight.data.ActivityLevel
+import com.qingheng.weight.data.Sex
 import com.qingheng.weight.data.UserProfile
 import java.util.Locale
 import kotlin.math.round
+import kotlin.math.roundToInt
 
 object ScaleProtocol {
     fun parseXiaomiWeight(data: ByteArray, profile: UserProfile): BodyMetrics? {
@@ -108,43 +111,222 @@ object ScaleProtocol {
 }
 
 class IcomonFrameAssembler {
-    private var sequence = -1
     private var expected = 0
     private val payload = mutableListOf<Byte>()
+    private var latestWeightKg: Double? = null
 
-    fun accept(frame: ByteArray, profile: UserProfile): BodyMetrics? {
-        if (frame.size != 20 || (frame.sliceArray(3..18).sumOf { it.u() } and 0x1F) != frame[19].u()) return null
-        val seq = frame[0].u(); val total = frame[1].u(); val fragment = frame[2].u()
-        if (fragment == 0 || seq != sequence) { sequence = seq; expected = total; payload.clear() }
-        if (fragment * 16 != payload.size) return null
-        payload += frame.sliceArray(3..18).toList()
+    fun accept(frame: ByteArray, profile: UserProfile, fallbackWeightKg: Double? = null): BodyMetrics? {
+        if (latestWeightKg == null) latestWeightKg = fallbackWeightKg
+        val decoded = decodeTransportFrame(frame) ?: return null
+        val (fragment, total, chunk) = decoded
+
+        if (fragment == 0) {
+            payload.clear()
+            expected = total
+        } else if (expected == 0) {
+            return null
+        }
+        payload += chunk.toList()
         if (payload.size < expected) return null
+
         val msg = payload.take(expected).toByteArray()
-        payload.clear()
+        payload.clear(); expected = 0
         return parseMessage(msg, profile)?.copy(rawPacketHex = frame.hex())
+    }
+
+    /**
+     * ICOMON firmware in the field uses two envelope variants:
+     *
+     * 1. 20 bytes: `[seq][total][fragment][16-byte chunk][checksum]`
+     * 2. Compact: `[seq][fragment][total][00][chunk][checksum]`
+     *
+     * The connected Fitdays scale uses the compact 12-byte A2 form. Both checksums are the
+     * low five bits of the payload sum.
+     */
+    private fun decodeTransportFrame(frame: ByteArray): TransportFrame? {
+        if (frame.size == 20) {
+            val chunk = frame.sliceArray(3..18)
+            if ((chunk.sumOf { it.u() } and 0x1F) != frame[19].u()) return null
+            return TransportFrame(frame[2].u(), frame[1].u(), chunk)
+        }
+
+        if (frame.size >= 6 && frame[3].u() == 0) {
+            val total = frame[2].u()
+            val available = (frame.size - 5).coerceAtLeast(0)
+            val chunkSize = minOf(total, available)
+            if (chunkSize <= 0) return null
+            val chunk = frame.sliceArray(4 until 4 + chunkSize)
+            if ((chunk.sumOf { it.u() } and 0x1F) != frame.last().u()) return null
+            return TransportFrame(frame[1].u(), total, chunk)
+        }
+        return null
     }
 
     private fun parseMessage(msg: ByteArray, profile: UserProfile): BodyMetrics? {
         if (msg.isEmpty()) return null
         return when (msg[0].u()) {
-            0xA2 -> if (msg.size >= 6) {
-                val kg = msg.u16be(4) / 1000.0
-                BodyCompositionCalculator.estimate(kg, null, profile).copy(isStable = msg.getOrNull(1)?.u() == 3)
+            0xA2 -> if (msg.size >= 7) {
+                val kg = msg.u24be(3) / 1000.0
+                if (kg !in 5.0..350.0) null else {
+                    latestWeightKg = kg
+                    BodyCompositionCalculator.estimate(kg, null, profile)
+                        .copy(isStable = msg[1].u() in 2..3)
+                }
             } else null
-            0xA3 -> if (msg.size >= 7) {
-                val kg = msg.u16be(3) / 1000.0
+            // ScaleNew sends the impedance/ADC result separately after the stable A2 weight.
+            // Payload: A6 + ADC1 (big-endian) + optional ADC2..5 + unit + BFA type.
+            0xA6 -> if (msg.size >= 5) {
+                val kg = latestWeightKg
+                val rawAdc = msg.u16be(1).toDouble()
+                val impedance = when {
+                    rawAdc <= 0.0 -> null
+                    rawAdc >= 1500.0 && kg != null ->
+                        (((rawAdc - 1000.0) - kg * 10.0 * 0.4) / 0.6 / 10.0)
+                            .takeIf { it in 80.0..3000.0 }
+                    else -> rawAdc.takeIf { it in 80.0..3000.0 }
+                }
+                if (kg == null || impedance == null) null else {
+                    BodyCompositionCalculator.estimate(kg, impedance, profile)
+                        .copy(isStable = true, isEstimated = false)
+                }
+            } else null
+            0xA3 -> if (msg.size >= 6) {
+                val kg = msg.u24be(2) / 1000.0
                 val impedances = buildList {
                     var i = 6
                     while (i + 1 < msg.size) { add(msg.u16be(i) / 10.0); i += 2 }
                 }.filter { it in 80.0..3000.0 }
-                BodyCompositionCalculator.estimate(kg, impedances.firstOrNull(), profile).copy(isStable = true)
+                if (kg !in 5.0..350.0) null else BodyCompositionCalculator.estimate(kg, impedances.firstOrNull(), profile)
+                    .copy(isStable = true)
             } else null
             else -> null
         }
     }
+
+    private data class TransportFrame(val fragment: Int, val total: Int, val chunk: ByteArray)
+
+    companion object {
+        /** A0 counters and A3 results must be acknowledged with a B0 frame. */
+        fun requiresAck(frame: ByteArray): Boolean {
+            val type = when {
+                frame.size == 20 && frame[2].u() == 0 -> frame[3].u()
+                frame.size >= 6 && frame[1].u() == 0 && frame[3].u() == 0 -> frame[4].u()
+                else -> return false
+            }
+            return type == 0xA0 || type == 0xA3
+        }
+    }
+}
+
+/** Stateful encoder for app -> scale commands written to Fitdays characteristic FFB1. */
+class IcomonCommandSession {
+    private var sequence = 0
+    private var replyIndex = 0
+
+    fun reset() {
+        sequence = 0
+        replyIndex = 0
+    }
+
+    fun ack(): List<ByteArray> {
+        val frames = emit(byteArrayOf(0xB0.toByte(), replyIndex.toByte(), 0))
+        replyIndex = (replyIndex + 1) and 0xFF
+        return frames
+    }
+
+    /** ICOMON ScaleNew (protocol 105) unit/time initialization written to FFB1. */
+    fun scaleNewSetup(unixTimeSeconds: Int = (System.currentTimeMillis() / 1000L).toInt()): List<ByteArray> {
+        val unit = byteArrayOf(
+            0xAC.toByte(), 0x20, 0xFE.toByte(), 0x06, 0x00, 0x00, 0xCC.toByte(), 0,
+        ).withScaleNewChecksum()
+        val time = byteArrayOf(
+            0xAC.toByte(), 0x20,
+            (unixTimeSeconds ushr 24).toByte(), (unixTimeSeconds ushr 16).toByte(),
+            (unixTimeSeconds ushr 8).toByte(), unixTimeSeconds.toByte(),
+            0xC0.toByte(), 0,
+        ).withScaleNewChecksum()
+        return listOf(unit, time)
+    }
+
+    fun sync(
+        profile: UserProfile,
+        weightKg: Double,
+        userId: Long = 0,
+        unixTimeSeconds: Int = (System.currentTimeMillis() / 1000L).toInt(),
+        stabilized: Boolean = true,
+    ): List<ByteArray> {
+        val record = profileRecord(profile, weightKg, userId, stabilized)
+        return emit(buildList<Byte> {
+            add(0xBA.toByte())
+            addAll(unixTimeSeconds.be32().toList())
+            add(0); add(0x78)
+            addAll(record.toList())
+            add((if (profile.activityLevel == ActivityLevel.HIGH) 0x0F else 0x2F).toByte())
+        }.toByteArray())
+    }
+
+    fun userList(
+        profile: UserProfile,
+        weightKg: Double,
+        userId: Long = 0,
+        stabilized: Boolean = true,
+    ): List<ByteArray> = emit(
+        byteArrayOf(0xBB.toByte(), 1) + profileRecord(profile, weightKg, userId, stabilized),
+    )
+
+    fun other(subCommand: Int = 0x09): List<ByteArray> =
+        emit(byteArrayOf(0xBD.toByte(), subCommand.toByte()))
+
+    private fun profileRecord(
+        profile: UserProfile,
+        weightKg: Double,
+        userId: Long,
+        stabilized: Boolean,
+    ): ByteArray {
+        var rawWeight = (weightKg.coerceIn(0.0, 327.67) * 100.0).roundToInt() and 0x7FFF
+        if (stabilized && rawWeight > 0) rawWeight = rawWeight or 0x8000
+        val ageAndSex = (profile.age and 0x7F) or if (profile.sex == Sex.MALE) 0x80 else 0
+        return byteArrayOf(
+            (userId ushr 24).toByte(), (userId ushr 16).toByte(),
+            (userId ushr 8).toByte(), userId.toByte(),
+            profile.heightCm.coerceIn(80, 255).toByte(),
+            (rawWeight ushr 8).toByte(), rawWeight.toByte(), ageAndSex.toByte(),
+        )
+    }
+
+    private fun emit(payload: ByteArray): List<ByteArray> {
+        val frames = buildFrames(sequence, payload)
+        sequence = (sequence + 1) and 0xFF
+        return frames
+    }
+
+    private fun buildFrames(sequence: Int, payload: ByteArray): List<ByteArray> = buildList {
+        var offset = 0
+        var fragment = 0
+        do {
+            val frame = ByteArray(20)
+            frame[0] = sequence.toByte()
+            frame[1] = payload.size.toByte()
+            frame[2] = fragment.toByte()
+            val length = minOf(16, payload.size - offset)
+            payload.copyInto(frame, destinationOffset = 3, startIndex = offset, endIndex = offset + length)
+            frame[19] = (frame.sliceArray(3..18).sumOf { it.u() } and 0x1F).toByte()
+            add(frame)
+            offset += length
+            fragment += 1
+        } while (offset < payload.size)
+    }
+}
+
+private fun ByteArray.withScaleNewChecksum(): ByteArray = apply {
+    this[lastIndex] = sliceArray(2 until lastIndex).sumOf { it.u() }.toByte()
 }
 
 internal fun Byte.u() = toInt() and 0xFF
 internal fun ByteArray.u16le(i: Int) = this[i].u() or (this[i + 1].u() shl 8)
 internal fun ByteArray.u16be(i: Int) = (this[i].u() shl 8) or this[i + 1].u()
+internal fun ByteArray.u24be(i: Int) = (this[i].u() shl 16) or (this[i + 1].u() shl 8) or this[i + 2].u()
 internal fun ByteArray.hex() = joinToString("") { String.format(Locale.US, "%02X", it.u()) }
+private fun Int.be32() = byteArrayOf(
+    (this ushr 24).toByte(), (this ushr 16).toByte(), (this ushr 8).toByte(), toByte(),
+)

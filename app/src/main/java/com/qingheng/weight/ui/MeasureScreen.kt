@@ -8,6 +8,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bluetooth
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,11 +21,17 @@ import androidx.compose.ui.unit.sp
 import com.qingheng.weight.ble.BleState
 
 @Composable
-fun MeasureScreen(vm: AppViewModel, requestScan: () -> Unit) {
+fun MeasureScreen(
+    vm: AppViewModel,
+    requestScan: () -> Unit,
+    chooseFitdaysFile: () -> Unit,
+    openFitdays: () -> Unit,
+) {
     val state by vm.ble.state.collectAsState()
     val devices by vm.ble.devices.collectAsState()
     val metrics by vm.ble.measurement.collectAsState()
     val packets by vm.ble.packets.collectAsState()
+    val importState by vm.fitdaysImportState.collectAsState()
     var manual by remember { mutableStateOf("") }
     var showPackets by remember { mutableStateOf(false) }
 
@@ -36,13 +44,26 @@ fun MeasureScreen(vm: AppViewModel, requestScan: () -> Unit) {
                         Icon(Icons.Outlined.Bluetooth, null, tint = Emerald, modifier = Modifier.size(30.dp))
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text(if (metrics?.isStable == true) "测量完成" else "请赤脚站上体脂秤", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        when {
+                            metrics?.isStable != true -> "请赤脚站上体脂秤"
+                            metrics?.isEstimated == true -> "体重测量完成"
+                            else -> "身体成分测量完成"
+                        },
+                        fontWeight = FontWeight.SemiBold,
+                    )
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(metrics?.weightKg?.one() ?: "--", fontSize = 52.sp, fontWeight = FontWeight.Bold)
                         Text(" kg", Modifier.padding(bottom = 9.dp))
                     }
                     if (metrics?.isStable == false) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-                    metrics?.impedanceOhm?.let { Text("阻抗 ${it.one()} Ω · ${if (metrics?.isEstimated == true) "身体成分由本机估算" else "设备直接数据"}", style = MaterialTheme.typography.bodySmall) }
+                    metrics?.let {
+                        Text(
+                            if (it.isEstimated) "仅收到体重 · 下方身体成分为本机估算"
+                            else "阻抗 ${it.impedanceOhm?.one() ?: "--"} Ω · 身体指标由本机计算",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -73,6 +94,35 @@ fun MeasureScreen(vm: AppViewModel, requestScan: () -> Unit) {
             )
         }
         item {
+            Text("Fitdays 全部历史", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), fontWeight = FontWeight.Bold)
+            Card(Modifier.fillMaxWidth().padding(horizontal = 20.dp), shape = RoundedCornerShape(20.dp)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("首次导入全部记录，重复导入会自动去重并更新。体重、BMI、体脂、体水分、骨骼肌、基础代谢等会一起保留。", style = MaterialTheme.typography.bodyMedium)
+                    Text("先在 Fitdays 的历史页选择“全部数据”并导出；分享时可直接选“轻衡”，也可以回到这里选择导出文件。", style = MaterialTheme.typography.bodySmall)
+                    Button(chooseFitdaysFile, enabled = importState !is FitdaysImportState.Importing, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.FileDownload, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (importState is FitdaysImportState.Importing) "正在导入全部历史…" else "导入 Fitdays 全部历史")
+                    }
+                    OutlinedButton(openFitdays, Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.OpenInNew, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("打开 Fitdays 去导出")
+                    }
+                    when (val result = importState) {
+                        is FitdaysImportState.Success -> Text(
+                            "完成：新增 ${result.summary.added} 条，更新 ${result.summary.updated} 条" +
+                                if (result.summary.skipped > 0) "，跳过 ${result.summary.skipped} 行" else "",
+                            color = Emerald,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        is FitdaysImportState.Error -> Text(result.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                        else -> Unit
+                    }
+                }
+            }
+        }
+        item {
             HorizontalDivider(Modifier.padding(20.dp))
             Text("手动记录", Modifier.padding(horizontal = 20.dp), fontWeight = FontWeight.Bold)
             Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -99,4 +149,3 @@ private fun BleState.title() = when (this) {
     is BleState.Connected -> "已连接 $name"
     is BleState.Error -> message
 }
-
