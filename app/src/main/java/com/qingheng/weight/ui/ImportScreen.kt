@@ -18,12 +18,39 @@ fun ImportScreen(
     vm: AppViewModel,
     chooseFitdaysFile: () -> Unit,
     openFitdays: () -> Unit,
+    requestHealthConnectPermissions: () -> Unit,
 ) {
     val importState by vm.fitdaysImportState.collectAsState()
+    val healthState by vm.healthSyncState.collectAsState()
     var manual by remember { mutableStateOf("") }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { ScreenHeader("导入身体数据", "从 Fitdays 导入完整历史记录") }
+        item {
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            ) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Health Connect 自动同步", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(healthState.description(), style = MaterialTheme.typography.bodyMedium)
+                    when {
+                        healthState.needsPermission() -> Button(requestHealthConnectPermissions, Modifier.fillMaxWidth()) {
+                            Text("开启自动增量同步")
+                        }
+                        healthState is HealthSyncState.Syncing -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                        healthState.permissionGranted() -> {
+                            OutlinedButton(vm::syncHealthConnectNow, Modifier.fillMaxWidth()) { Text("立即同步新增数据") }
+                            if (!healthState.backgroundEnabled()) {
+                                TextButton(requestHealthConnectPermissions, Modifier.fillMaxWidth()) { Text("允许后台自动同步") }
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
         item {
             Card(Modifier.fillMaxWidth().padding(horizontal = 20.dp), shape = RoundedCornerShape(24.dp)) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -74,4 +101,33 @@ fun ImportScreen(
             }
         }
     }
+}
+
+private fun HealthSyncState.description(): String = when (this) {
+    HealthSyncState.Checking -> "正在检查连接状态…"
+    HealthSyncState.Unavailable -> "这台手机暂不支持 Health Connect。"
+    HealthSyncState.PermissionRequired -> "授权一次后，Fitdays 的新体重和体脂数据会自动进入轻衡。"
+    HealthSyncState.Syncing -> "正在从 Health Connect 读取 Fitdays 新数据…"
+    is HealthSyncState.Ready -> if (backgroundEnabled) "已连接，后台会定时同步。" else "已连接，打开轻衡时会自动同步。"
+    is HealthSyncState.Success -> buildString {
+        append("已连接，本次读取 $recordsRead 条")
+        if (recordsChanged > 0) append("，更新 $recordsChanged 条")
+        append(if (backgroundEnabled) "；后台自动同步已开启。" else "；打开轻衡时自动同步。")
+    }
+    is HealthSyncState.Error -> "同步遇到问题：$message"
+}
+
+private fun HealthSyncState.needsPermission(): Boolean =
+    this is HealthSyncState.PermissionRequired
+
+private fun HealthSyncState.permissionGranted(): Boolean = when (this) {
+    is HealthSyncState.Ready, is HealthSyncState.Success -> true
+    is HealthSyncState.Error -> permissionGranted
+    else -> false
+}
+
+private fun HealthSyncState.backgroundEnabled(): Boolean = when (this) {
+    is HealthSyncState.Ready -> backgroundEnabled
+    is HealthSyncState.Success -> backgroundEnabled
+    else -> false
 }

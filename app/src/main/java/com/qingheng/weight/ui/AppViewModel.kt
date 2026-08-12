@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.qingheng.weight.QingHengApp
 import com.qingheng.weight.data.*
+import com.qingheng.weight.health.HealthPermissionState
+import com.qingheng.weight.health.HealthSyncScheduler
 import com.qingheng.weight.settings.AppSettings
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -17,6 +19,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val settings = app.settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
     val isSaving = MutableStateFlow(false)
     val fitdaysImportState = MutableStateFlow<FitdaysImportState>(FitdaysImportState.Idle)
+    val healthSyncState = MutableStateFlow<HealthSyncState>(HealthSyncState.Checking)
 
     fun addManualWeight(weight: Double) = viewModelScope.launch {
         if (weight in 5.0..350.0) app.repository.saveManualWeight(weight, settings.value.profile)
@@ -35,6 +38,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun healthPermissionsToRequest(): Set<String> = app.healthConnectSync.permissionsToRequest()
+
+    fun refreshHealthConnect(autoSync: Boolean = true) = viewModelScope.launch {
+        val permission = runCatching { app.healthConnectSync.permissionState() }.getOrElse {
+            healthSyncState.value = HealthSyncState.Error(it.message ?: "Health Connect 状态读取失败", false)
+            return@launch
+        }
+        when {
+            !permission.available -> healthSyncState.value = HealthSyncState.Unavailable
+            !permission.coreGranted -> healthSyncState.value = HealthSyncState.PermissionRequired
+            autoSync -> syncHealthConnect(permission)
+            else -> healthSyncState.value = HealthSyncState.Ready(permission.backgroundGranted)
+        }
+    }
+
+    fun onHealthPermissionsResult() = viewModelScope.launch {
+        val permission = app.healthConnectSync.permissionState()
+        if (permission.backgroundGranted) HealthSyncScheduler.schedule(getApplication())
+        if (permission.coreGranted) syncHealthConnect(permission)
+        else healthSyncState.value = HealthSyncState.PermissionRequired
+    }
+
+    fun syncHealthConnectNow() = viewModelScope.launch {
+        val permission = app.healthConnectSync.permissionState()
+        if (permission.coreGranted) syncHealthConnect(permission)
+        else healthSyncState.value = HealthSyncState.PermissionRequired
+    }
+
+    private suspend fun syncHealthConnect(permission: HealthPermissionState) {
+        if (healthSyncState.value is HealthSyncState.Syncing) return
+        healthSyncState.value = HealthSyncState.Syncing
+        healthSyncState.value = runCatching {
+            val result = app.healthConnectSync.sync(app.settings.values.first().profile)
+            HealthSyncState.Success(result.recordsRead, result.recordsChanged, permission.backgroundGranted)
+        }.getOrElse {
+            HealthSyncState.Error(it.message ?: "自动同步失败", true)
+        }
+    }
+
     fun updateProfile(profile: UserProfile) = viewModelScope.launch { app.settings.updateProfile(profile) }
     fun updateService(url: String, token: String) = viewModelScope.launch { app.settings.updateService(url, token) }
     fun deleteWeight(record: WeightRecord) = viewModelScope.launch { app.repository.deleteWeight(record) }
@@ -48,4 +90,14 @@ sealed interface FitdaysImportState {
     data object Importing : FitdaysImportState
     data class Success(val summary: FitdaysImportSummary) : FitdaysImportState
     data class Error(val message: String) : FitdaysImportState
+}
+
+sealed interface HealthSyncState {
+    data object Checking : HealthSyncState
+    data object Unavailable : HealthSyncState
+    data object PermissionRequired : HealthSyncState
+    data object Syncing : HealthSyncState
+    data class Ready(val backgroundEnabled: Boolean) : HealthSyncState
+    data class Success(val recordsRead: Int, val recordsChanged: Int, val backgroundEnabled: Boolean) : HealthSyncState
+    data class Error(val message: String, val permissionGranted: Boolean) : HealthSyncState
 }

@@ -42,7 +42,54 @@ class AppRepository(private val weights: WeightDao, private val meals: MealDao) 
         )
     }
 
+    suspend fun saveHealthConnectMeasurement(measurement: HealthConnectMeasurement): Boolean {
+        val deterministicId = "health-connect-${measurement.healthConnectId}"
+        val existing = weights.findById(deterministicId) ?: weights.findNearest(
+            weightKg = measurement.weightKg,
+            measuredAt = measurement.measuredAt,
+            from = measurement.measuredAt - 2 * 60_000L,
+            to = measurement.measuredAt + 2 * 60_000L,
+        )
+        val record = WeightRecord(
+            id = existing?.id ?: deterministicId,
+            measuredAt = measurement.measuredAt,
+            source = if (existing?.source?.startsWith("fitdays_import") == true) "fitdays_import+health_connect" else "health_connect_fitdays",
+            deviceName = "Fitdays · Health Connect",
+            weightKg = measurement.weightKg,
+            impedanceOhm = existing?.impedanceOhm,
+            bmi = measurement.bmi ?: existing?.bmi,
+            bodyFatPercent = measurement.bodyFatPercent ?: existing?.bodyFatPercent,
+            bodyWaterPercent = measurement.bodyWaterPercent ?: existing?.bodyWaterPercent,
+            skeletalMusclePercent = existing?.skeletalMusclePercent,
+            bmrKcal = measurement.bmrKcal ?: existing?.bmrKcal,
+            fatFreeMassKg = measurement.fatFreeMassKg ?: existing?.fatFreeMassKg,
+            subcutaneousFatPercent = existing?.subcutaneousFatPercent,
+            visceralFat = existing?.visceralFat,
+            muscleMassKg = existing?.muscleMassKg,
+            boneMassKg = measurement.boneMassKg ?: existing?.boneMassKg,
+            proteinPercent = existing?.proteinPercent,
+            bodyAge = existing?.bodyAge,
+            isEstimated = measurement.bodyFatPercent == null && existing?.bodyFatPercent == null,
+            rawPacketHex = existing?.rawPacketHex,
+        )
+        if (record == existing) return false
+        weights.insert(record)
+        return true
+    }
+
     suspend fun saveMeal(record: MealRecord) = meals.insert(record)
     suspend fun deleteWeight(record: WeightRecord) = weights.delete(record)
     suspend fun deleteMeal(record: MealRecord) = meals.delete(record)
 }
+
+data class HealthConnectMeasurement(
+    val healthConnectId: String,
+    val measuredAt: Long,
+    val weightKg: Double,
+    val bmi: Double?,
+    val bodyFatPercent: Double?,
+    val bodyWaterPercent: Double?,
+    val bmrKcal: Int?,
+    val fatFreeMassKg: Double?,
+    val boneMassKg: Double?,
+)

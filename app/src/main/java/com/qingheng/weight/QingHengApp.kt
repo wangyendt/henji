@@ -4,12 +4,16 @@ import android.app.Application
 import androidx.room.Room
 import com.qingheng.weight.data.AppDatabase
 import com.qingheng.weight.data.AppRepository
+import com.qingheng.weight.health.HealthConnectSync
+import com.qingheng.weight.health.HealthSyncScheduler
 import com.qingheng.weight.settings.SettingsStore
 
 class QingHengApp : Application() {
     lateinit var repository: AppRepository
         private set
     lateinit var settings: SettingsStore
+        private set
+    lateinit var healthConnectSync: HealthConnectSync
         private set
 
     override fun onCreate() {
@@ -19,6 +23,7 @@ class QingHengApp : Application() {
             .build()
         repository = AppRepository(database.weightDao(), database.mealDao())
         settings = SettingsStore(this)
+        healthConnectSync = HealthConnectSync(this, repository)
+        HealthSyncScheduler.schedule(this)
     }
 }
-

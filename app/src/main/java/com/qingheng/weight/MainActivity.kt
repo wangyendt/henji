@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.health.connect.client.PermissionController
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -25,6 +26,9 @@ import com.qingheng.weight.ui.*
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<AppViewModel>()
+    private val healthPermissionLauncher = registerForActivityResult(
+        PermissionController.createRequestPermissionResultContract()
+    ) { viewModel.onHealthPermissionsResult() }
     private val fitdaysFileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             runCatching { contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -37,9 +41,14 @@ class MainActivity : ComponentActivity() {
         handleSharedFitdaysFile(intent)
         setContent {
             QingHengTheme {
-                QingHengRoot(viewModel, ::chooseFitdaysFile, ::openFitdays)
+                QingHengRoot(viewModel, ::chooseFitdaysFile, ::openFitdays, ::requestHealthConnectPermissions)
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        viewModel.refreshHealthConnect()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -51,6 +60,15 @@ class MainActivity : ComponentActivity() {
     private fun chooseFitdaysFile() = fitdaysFileLauncher.launch(
         arrayOf("text/csv", "application/csv", "application/vnd.ms-excel", "application/octet-stream")
     )
+
+    private fun requestHealthConnectPermissions() {
+        val permissions = viewModel.healthPermissionsToRequest()
+        if (permissions.isEmpty()) {
+            Toast.makeText(this, "这台手机暂不支持 Health Connect", Toast.LENGTH_LONG).show()
+        } else {
+            healthPermissionLauncher.launch(permissions)
+        }
+    }
 
     private fun openFitdays() {
         val launcher = ComponentName(
@@ -81,6 +99,7 @@ private fun QingHengRoot(
     vm: AppViewModel,
     chooseFitdaysFile: () -> Unit,
     openFitdays: () -> Unit,
+    requestHealthConnectPermissions: () -> Unit,
 ) {
     val nav = rememberNavController()
     val destinations = listOf(
@@ -105,7 +124,14 @@ private fun QingHengRoot(
         NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
             composable("home") { DashboardScreen(vm, { nav.navigate("import") }, { nav.navigate("meals") }) }
             composable("progress") { ProgressScreen(vm) }
-            composable("import") { ImportScreen(vm, chooseFitdaysFile, openFitdays) }
+            composable("import") {
+                ImportScreen(
+                    vm = vm,
+                    chooseFitdaysFile = chooseFitdaysFile,
+                    openFitdays = openFitdays,
+                    requestHealthConnectPermissions = requestHealthConnectPermissions,
+                )
+            }
             composable("meals") { MealsScreen(vm) }
             composable("settings") { SettingsScreen(vm) }
         }

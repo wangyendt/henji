@@ -15,6 +15,12 @@ interface WeightDao {
     @Query("SELECT * FROM weight_records ORDER BY measuredAt DESC LIMIT 1")
     suspend fun latest(): WeightRecord?
 
+    @Query("SELECT * FROM weight_records WHERE id = :id LIMIT 1")
+    suspend fun findById(id: String): WeightRecord?
+
+    @Query("SELECT * FROM weight_records WHERE source != 'manual' AND measuredAt BETWEEN :from AND :to AND ABS(weightKg - :weightKg) < 0.05 ORDER BY ABS(measuredAt - :measuredAt) LIMIT 1")
+    suspend fun findNearest(weightKg: Double, measuredAt: Long, from: Long, to: Long): WeightRecord?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: WeightRecord)
 
