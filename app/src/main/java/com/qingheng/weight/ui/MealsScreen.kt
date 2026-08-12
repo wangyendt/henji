@@ -1,5 +1,9 @@
 package com.qingheng.weight.ui
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -8,29 +12,59 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddAPhoto
+import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import com.qingheng.weight.data.MealRecord
+import com.qingheng.weight.meal.CodexTaskClient
+import com.qingheng.weight.meal.MealAnalysis
+import com.qingheng.weight.settings.AppSettings
 import kotlinx.coroutines.launch
+import java.io.File
+import java.util.UUID
 
 @Composable
 fun MealsScreen(vm: AppViewModel) {
-    val meals by vm.meals.collectAsStateWithLifecycle()
+    val meals by vm.meals.collectAsState()
+    val settings by vm.settings.collectAsState()
+    val context = LocalContext.current
     var selectedImage by remember { mutableStateOf<String?>(null) }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     var showAdd by remember { mutableStateOf(false) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        selectedImage = uri?.toString(); if (uri != null) showAdd = true
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            selectedImage = uri.toString(); showAdd = true
+        }
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) { selectedImage = pendingCameraUri?.toString(); showAdd = true }
+    }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) createMealPhotoUri(context)?.let { pendingCameraUri = it; camera.launch(it) }
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { ScreenHeader("饮食记录", "用照片留下真实的一餐") }
         item {
-            Button({ picker.launch("image/*") }, Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(54.dp)) {
-                Icon(Icons.Outlined.AddAPhoto, null); Spacer(Modifier.width(8.dp)); Text("选择照片并识别")
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button({ picker.launch(arrayOf("image/*")) }, Modifier.weight(1f).height(54.dp)) {
+                    Icon(Icons.Outlined.AddAPhoto, null); Spacer(Modifier.width(6.dp)); Text("选照片")
+                }
+                OutlinedButton({
+                    if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        createMealPhotoUri(context)?.let { pendingCameraUri = it; camera.launch(it) }
+                    } else cameraPermission.launch(Manifest.permission.CAMERA)
+                }, Modifier.weight(1f).height(54.dp)) {
+                    Icon(Icons.Outlined.CameraAlt, null); Spacer(Modifier.width(6.dp)); Text("拍一餐")
+                }
             }
             Spacer(Modifier.height(18.dp))
             Text("最近记录", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium)
@@ -52,32 +86,74 @@ fun MealsScreen(vm: AppViewModel) {
         }
         if (meals.isEmpty()) item { Text("还没有饮食记录。选择一张餐食照片开始。", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
-    if (showAdd) AddMealDialog(vm, selectedImage) { showAdd = false; selectedImage = null }
+    if (showAdd) AddMealDialog(vm, settings, selectedImage) { showAdd = false; selectedImage = null }
 }
 
-@Composable private fun AddMealDialog(vm: AppViewModel, imageUri: String?, dismiss: () -> Unit) {
+private fun createMealPhotoUri(context: android.content.Context): Uri? = runCatching {
+    val dir = File(context.filesDir, "meal_photos").apply { mkdirs() }
+    val file = File(dir, "meal-${System.currentTimeMillis()}.jpg")
+    FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+}.getOrNull()
+
+@Composable private fun AddMealDialog(vm: AppViewModel, settings: AppSettings, imageUri: String?, dismiss: () -> Unit) {
+    val context = LocalContext.current
     var name by remember { mutableStateOf("") }
-    var calories by remember { mutableStateOf("") }
+    var calorieLow by remember { mutableStateOf("") }
+    var calorieHigh by remember { mutableStateOf("") }
+    var advice by remember { mutableStateOf("") }
+    var analysis by remember { mutableStateOf<MealAnalysis?>(null) }
+    var analyzing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    fun analyze() {
+        if (imageUri == null) return
+        if (settings.serviceToken.isBlank()) { error = "请先到“我的”中填写 CodexTask Service Token"; return }
+        analyzing = true; error = null
+        scope.launch {
+            runCatching { CodexTaskClient(settings.serviceUrl, settings.serviceToken).analyze(context.contentResolver, Uri.parse(imageUri)) }
+                .onSuccess { result ->
+                    analysis = result; name = result.dishes.joinToString("、")
+                    calorieLow = result.caloriesKcal.min.toInt().toString(); calorieHigh = result.caloriesKcal.max.toInt().toString()
+                    advice = result.advice
+                }
+                .onFailure { error = it.message ?: "识别失败，请稍后重试" }
+            analyzing = false
+        }
+    }
+
+    LaunchedEffect(imageUri) { analyze() }
     AlertDialog(
         onDismissRequest = dismiss,
-        title = { Text("记录这一餐") },
+        title = { Text(if (analyzing) "正在识别这一餐…" else "记录这一餐") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             imageUri?.let { AsyncImage(it, null, Modifier.fillMaxWidth().height(150.dp), contentScale = ContentScale.Crop) }
-            Text("CodexTask 智能识别将在下一步接入；现在也可以先手动保存。", style = MaterialTheme.typography.bodySmall)
+            if (analyzing) LinearProgressIndicator(Modifier.fillMaxWidth())
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             OutlinedTextField(name, { name = it }, label = { Text("菜品") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(calories, { calories = it.filter(Char::isDigit) }, label = { Text("估计热量 kcal") }, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(calorieLow, { calorieLow = it.filter(Char::isDigit) }, label = { Text("最低 kcal") }, modifier = Modifier.weight(1f))
+                Text("–")
+                OutlinedTextField(calorieHigh, { calorieHigh = it.filter(Char::isDigit) }, label = { Text("最高 kcal") }, modifier = Modifier.weight(1f))
+            }
+            OutlinedTextField(advice, { advice = it }, label = { Text("饮食建议") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+            if (error != null) OutlinedButton(::analyze, enabled = !analyzing, modifier = Modifier.fillMaxWidth()) { Text("重新识别") }
         } },
         confirmButton = { Button({
-            val kcal = calories.toIntOrNull() ?: 0
+            val low = calorieLow.toIntOrNull() ?: 0; val high = calorieHigh.toIntOrNull() ?: low
+            val result = analysis
             scope.launch {
-                vm.saveMeal(com.qingheng.weight.data.MealRecord(
-                    id = java.util.UUID.randomUUID().toString(), createdAt = System.currentTimeMillis(), mealType = "餐食",
-                    imageUri = imageUri, foodNames = name.ifBlank { "未命名餐食" }, calorieLow = kcal, calorieHigh = kcal,
-                    advice = "已手动记录", rawAnalysis = null,
+                vm.saveMeal(MealRecord(
+                    id = UUID.randomUUID().toString(), createdAt = System.currentTimeMillis(), mealType = "餐食",
+                    imageUri = imageUri, foodNames = name.ifBlank { "未命名餐食" }, calorieLow = minOf(low, high), calorieHigh = maxOf(low, high),
+                    proteinGrams = result?.proteinGrams?.let { (it.min + it.max) / 2 },
+                    carbsGrams = result?.carbohydrateGrams?.let { (it.min + it.max) / 2 },
+                    fatGrams = result?.fatGrams?.let { (it.min + it.max) / 2 },
+                    advice = advice.ifBlank { "已记录，可补充蔬菜并注意份量。" }, confidence = if (result != null) 0.7 else null,
+                    rawAnalysis = result?.toString(),
                 )); dismiss()
             }
-        }, enabled = name.isNotBlank()) { Text("保存") } },
+        }, enabled = name.isNotBlank() && !analyzing) { Text("保存") } },
         dismissButton = { TextButton(dismiss) { Text("取消") } },
     )
 }

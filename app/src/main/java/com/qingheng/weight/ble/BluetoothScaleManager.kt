@@ -28,7 +28,9 @@ class BluetoothScaleManager(context: Context) {
         val WEIGHT_SERVICE: UUID = uuid("181D"); val WEIGHT_MEASUREMENT: UUID = uuid("2A9D")
         val BODY_SERVICE: UUID = uuid("181B"); val BODY_MEASUREMENT: UUID = uuid("2A9C")
         val FFE0: UUID = uuid("FFE0"); val FFE1: UUID = uuid("FFE1")
+        val FFE3: UUID = uuid("FFE3"); val FFE4: UUID = uuid("FFE4")
         val FFF0: UUID = uuid("FFF0"); val FFF1: UUID = uuid("FFF1")
+        val FFF2: UUID = uuid("FFF2")
         val FFB0: UUID = uuid("FFB0"); val FFB2: UUID = uuid("FFB2"); val FFB3: UUID = uuid("FFB3")
         private val CCCD: UUID = uuid("2902")
     }
@@ -43,6 +45,9 @@ class BluetoothScaleManager(context: Context) {
     private val assembler = IcomonFrameAssembler()
     private val found = linkedMapOf<String, ScaleDevice>()
     private val notifyQueue = ArrayDeque<BluetoothGattCharacteristic>()
+    private val writeQueue = ArrayDeque<Pair<BluetoothGattCharacteristic, ByteArray>>()
+    private var writeInProgress = false
+    private var qnProtocolType: Byte = 0
 
     private val _state = MutableStateFlow<BleState>(BleState.Idle)
     val state: StateFlow<BleState> = _state.asStateFlow()
@@ -112,6 +117,12 @@ class BluetoothScaleManager(context: Context) {
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) = enableNextNotification(g)
 
+        override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            writeInProgress = false
+            if (status != BluetoothGatt.GATT_SUCCESS) log("写入 ${characteristic.uuid.toString().substring(4, 8)} 失败：$status")
+            writeNext(g)
+        }
+
         @Deprecated("Deprecated in API 33")
         override fun onCharacteristicChanged(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic) =
             handle(characteristic.uuid, characteristic.value, g.device.name)
@@ -136,7 +147,14 @@ class BluetoothScaleManager(context: Context) {
             WEIGHT_MEASUREMENT -> ScaleProtocol.parseStandardWeight(data, profile)
             BODY_MEASUREMENT -> ScaleProtocol.parseStandardBody(data, profile)
             FFE1, FFF1 -> {
-                if (data.firstOrNull()?.u() == 0x12 && data.size > 4) scaleFactor = if (data[4].u() == 10) 10.0 else 100.0
+                when (data.firstOrNull()?.u()) {
+                    0x12 -> if (data.size > 10) {
+                        qnProtocolType = data[2]
+                        scaleFactor = if (data[10].u() == 1) 100.0 else 10.0
+                        sendQnConfiguration()
+                    }
+                    0x14 -> sendQnTimeAck()
+                }
                 ScaleProtocol.parseQn(data, scaleFactor, profile)
             }
             FFB2, FFB3 -> assembler.accept(data, profile)
@@ -152,5 +170,59 @@ class BluetoothScaleManager(context: Context) {
     }
 
     private fun log(text: String) { _packets.value = (listOf(text) + _packets.value).take(30) }
-}
 
+    private fun sendQnConfiguration() {
+        val g = gatt ?: return
+        val shared = findCharacteristic(g, FFF2)
+        val configTarget = shared ?: findCharacteristic(g, FFE3)
+        val timeTarget = shared ?: findCharacteristic(g, FFE4)
+        if (configTarget == null) { log("QN 配置通道不存在，将继续被动接收数据"); return }
+
+        val config = byteArrayOf(0x13, 0x09, qnProtocolType, 0x01, 0x10, 0x00, 0x00, 0x00, 0x00)
+        config[config.lastIndex] = config.dropLast(1).sumOf { it.u() }.toByte()
+        queueWrite(configTarget, config)
+
+        if (timeTarget != null) {
+            val secondsSince2000 = (System.currentTimeMillis() / 1000L - 946_702_800L).toInt()
+            queueWrite(timeTarget, byteArrayOf(
+                0x02, secondsSince2000.toByte(), (secondsSince2000 ushr 8).toByte(),
+                (secondsSince2000 ushr 16).toByte(), (secondsSince2000 ushr 24).toByte(),
+            ))
+        }
+        writeNext(g)
+        log("已同步 QN/Fitdays 秤的单位和时间")
+    }
+
+    private fun sendQnTimeAck() {
+        val g = gatt ?: return
+        val target = findCharacteristic(g, FFF2) ?: findCharacteristic(g, FFE3) ?: return
+        val seconds = (System.currentTimeMillis() / 1000L - 946_702_800L).toInt()
+        val packet = byteArrayOf(
+            0x20, 0x08, qnProtocolType, seconds.toByte(), (seconds ushr 8).toByte(),
+            (seconds ushr 16).toByte(), (seconds ushr 24).toByte(), 0,
+        )
+        packet[packet.lastIndex] = packet.dropLast(1).sumOf { it.u() }.toByte()
+        queueWrite(target, packet); writeNext(g)
+    }
+
+    private fun findCharacteristic(g: BluetoothGatt, id: UUID): BluetoothGattCharacteristic? =
+        g.services.asSequence().flatMap { it.characteristics.asSequence() }.firstOrNull { it.uuid == id }
+
+    private fun queueWrite(characteristic: BluetoothGattCharacteristic, data: ByteArray) {
+        writeQueue.add(characteristic to data)
+    }
+
+    private fun writeNext(g: BluetoothGatt) {
+        if (writeInProgress) return
+        val (characteristic, data) = writeQueue.removeFirstOrNull() ?: return
+        writeInProgress = true
+        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        val started = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            g.writeCharacteristic(characteristic, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothStatusCodes.SUCCESS
+        } else {
+            characteristic.value = data
+            g.writeCharacteristic(characteristic)
+        }
+        if (!started) { writeInProgress = false; log("无法启动 Fitdays 配置写入"); writeNext(g) }
+    }
+}

@@ -85,7 +85,8 @@ object ScaleProtocol {
             stable = data[5].u() == 1; rawWeight = data.u16be(3)
             r1 = data.u16be(6); r2 = data.u16be(8)
         }
-        val kg = rawWeight / scaleFactor
+        var kg = rawWeight / scaleFactor
+        if (kg !in 5.0..350.0) kg /= 10.0
         val impedance = listOf(r1, r2).filter { it in 80..3000 }.average().takeIf { !it.isNaN() }
         return valid(kg) {
             BodyCompositionCalculator.estimate(kg, impedance, profile)
@@ -147,4 +148,3 @@ internal fun Byte.u() = toInt() and 0xFF
 internal fun ByteArray.u16le(i: Int) = this[i].u() or (this[i + 1].u() shl 8)
 internal fun ByteArray.u16be(i: Int) = (this[i].u() shl 8) or this[i + 1].u()
 internal fun ByteArray.hex() = joinToString("") { String.format(Locale.US, "%02X", it.u()) }
-

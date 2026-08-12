@@ -16,13 +16,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qingheng.weight.data.WeightRecord
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProgressScreen(vm: AppViewModel) {
-    val all by vm.weights.collectAsStateWithLifecycle()
+    val all by vm.weights.collectAsState()
     var days by remember { mutableIntStateOf(30) }
     val cutoff = System.currentTimeMillis() - days * 86_400_000L
     val records = all.filter { it.measuredAt >= cutoff }.sortedBy { it.measuredAt }

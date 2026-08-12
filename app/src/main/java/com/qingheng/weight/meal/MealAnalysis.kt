@@ -68,8 +68,8 @@ object MealAnalysisParser {
         vararg keys: String,
     ): EstimateRange {
         val value = keys.firstNotNullOfOrNull { key ->
-            root.opt(key).takeUnless { it == null || it === JSONObject.NULL }
-                ?: nested?.opt(key)?.takeUnless { it == null || it === JSONObject.NULL }
+            root.opt(key).takeUnless { it === JSONObject.NULL }
+                ?: nested?.opt(key)?.takeUnless { it === JSONObject.NULL }
         } ?: throw MealAnalysisParseException("模型结果缺少数值区间 ${keys.first()}")
 
         val (rawMin, rawMax) = when (value) {

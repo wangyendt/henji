@@ -18,13 +18,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
 fun DashboardScreen(vm: AppViewModel, onMeasure: () -> Unit, onMeal: () -> Unit) {
-    val records by vm.weights.collectAsStateWithLifecycle()
-    val meals by vm.meals.collectAsStateWithLifecycle()
-    val settings by vm.settings.collectAsStateWithLifecycle()
+    val records by vm.weights.collectAsState()
+    val meals by vm.meals.collectAsState()
+    val settings by vm.settings.collectAsState()
     val latest = records.firstOrNull()
     val previous = records.getOrNull(1)
     val todayStart = remember { java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0) }.timeInMillis }

@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 
 data class CodexTaskPollingOptions(
     val intervalMillis: Long = 1_000,
-    val timeoutMillis: Long = 120_000,
+    val timeoutMillis: Long = 300_000,
 ) {
     init {
         require(intervalMillis >= 0) { "轮询间隔不得为负数" }

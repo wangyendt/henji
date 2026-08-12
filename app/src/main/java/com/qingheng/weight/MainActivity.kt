@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
 
     private fun requestScan() {
         val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
-        else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (permissions.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) viewModel.startScan()
         else { scanAfterPermission = true; permissionLauncher.launch(permissions) }
     }
@@ -74,4 +74,3 @@ private fun QingHengRoot(vm: AppViewModel, requestScan: () -> Unit) {
         }
     }
 }
-

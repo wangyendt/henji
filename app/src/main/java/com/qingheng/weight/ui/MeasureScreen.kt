@@ -16,15 +16,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qingheng.weight.ble.BleState
 
 @Composable
 fun MeasureScreen(vm: AppViewModel, requestScan: () -> Unit) {
-    val state by vm.ble.state.collectAsStateWithLifecycle()
-    val devices by vm.ble.devices.collectAsStateWithLifecycle()
-    val metrics by vm.ble.measurement.collectAsStateWithLifecycle()
-    val packets by vm.ble.packets.collectAsStateWithLifecycle()
+    val state by vm.ble.state.collectAsState()
+    val devices by vm.ble.devices.collectAsState()
+    val metrics by vm.ble.measurement.collectAsState()
+    val packets by vm.ble.packets.collectAsState()
     var manual by remember { mutableStateOf("") }
     var showPackets by remember { mutableStateOf(false) }
 

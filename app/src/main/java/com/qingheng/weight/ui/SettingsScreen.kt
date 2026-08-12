@@ -8,14 +8,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qingheng.weight.data.Sex
 import com.qingheng.weight.data.UserProfile
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(vm: AppViewModel) {
-    val current by vm.settings.collectAsStateWithLifecycle()
+    val current by vm.settings.collectAsState()
     var height by remember(current.profile.heightCm) { mutableStateOf(current.profile.heightCm.toString()) }
     var year by remember(current.profile.birthYear) { mutableStateOf(current.profile.birthYear.toString()) }
     var goal by remember(current.profile.goalWeightKg) { mutableStateOf(current.profile.goalWeightKg.toString()) }
