@@ -7,23 +7,11 @@ class AppRepository(private val weights: WeightDao, private val meals: MealDao) 
     val weightRecords: Flow<List<WeightRecord>> = weights.observeAll()
     val mealRecords: Flow<List<MealRecord>> = meals.observeAll()
 
-    suspend fun saveMeasurement(metrics: BodyMetrics, deviceName: String?, source: String = "bluetooth") {
-        val now = System.currentTimeMillis()
-        val recent = if (source == "bluetooth") {
-            weights.recentBluetoothMeasurements(metrics.weightKg, now - 10 * 60_000L)
-        } else emptyList()
-        // A stable ICOMON scale repeats the same A2 frame with a changing sequence byte. Keep one
-        // record for that weighing and upgrade it when the later impedance/A3 result arrives.
-        val existing = recent.firstOrNull()
-        if (existing?.isEstimated == false && metrics.isEstimated) {
-            if (recent.size > 1) weights.delete(recent.drop(1))
-            return
-        }
-        if (recent.size > 1) weights.delete(recent.drop(1))
+    private suspend fun saveManualMeasurement(metrics: BodyMetrics) {
         weights.insert(
             WeightRecord(
-                id = existing?.id ?: UUID.randomUUID().toString(), measuredAt = existing?.measuredAt ?: now,
-                source = source, deviceName = deviceName, weightKg = metrics.weightKg,
+                id = UUID.randomUUID().toString(), measuredAt = System.currentTimeMillis(),
+                source = "manual", deviceName = null, weightKg = metrics.weightKg,
                 impedanceOhm = metrics.impedanceOhm, bmi = metrics.bmi,
                 bodyFatPercent = metrics.bodyFatPercent, bodyWaterPercent = metrics.bodyWaterPercent,
                 skeletalMusclePercent = metrics.skeletalMusclePercent, bmrKcal = metrics.bmrKcal,
@@ -37,7 +25,7 @@ class AppRepository(private val weights: WeightDao, private val meals: MealDao) 
     }
 
     suspend fun saveManualWeight(weightKg: Double, profile: UserProfile) {
-        saveMeasurement(BodyCompositionCalculator.estimate(weightKg, null, profile).copy(isStable = true), null, "manual")
+        saveManualMeasurement(BodyCompositionCalculator.estimate(weightKg, null, profile))
     }
 
     suspend fun importFitdaysHistory(parsed: FitdaysParseResult): FitdaysImportSummary {

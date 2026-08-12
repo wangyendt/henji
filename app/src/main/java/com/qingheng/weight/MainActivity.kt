@@ -1,10 +1,11 @@
 package com.qingheng.weight
 
-import android.Manifest
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,11 +25,6 @@ import com.qingheng.weight.ui.*
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<AppViewModel>()
-    private var scanAfterPermission = false
-    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        if (scanAfterPermission && result.values.all { it }) viewModel.startScan()
-        scanAfterPermission = false
-    }
     private val fitdaysFileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             runCatching { contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -41,7 +37,7 @@ class MainActivity : ComponentActivity() {
         handleSharedFitdaysFile(intent)
         setContent {
             QingHengTheme {
-                QingHengRoot(viewModel, ::requestScan, ::chooseFitdaysFile, ::openFitdays)
+                QingHengRoot(viewModel, ::chooseFitdaysFile, ::openFitdays)
             }
         }
     }
@@ -57,7 +53,12 @@ class MainActivity : ComponentActivity() {
     )
 
     private fun openFitdays() {
-        packageManager.getLaunchIntentForPackage("cn.fitdays.fitdays")?.let(::startActivity)
+        val launcher = ComponentName(
+            "cn.fitdays.fitdays",
+            "cn.fitdays.fitdays.mvp.ui.activity.SplashActivity1",
+        )
+        runCatching { startActivity(Intent.makeMainActivity(launcher)) }
+            .onFailure { Toast.makeText(this, "没有找到 Fitdays，请确认已经安装", Toast.LENGTH_LONG).show() }
     }
 
     private fun handleSharedFitdaysFile(intent: Intent?) {
@@ -71,16 +72,6 @@ class MainActivity : ComponentActivity() {
         uri?.let(viewModel::importFitdaysHistory)
     }
 
-    private fun requestScan() {
-        val permissions = if (Build.VERSION.SDK_INT >= 31) arrayOf(
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-        )
-        else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-        if (permissions.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) viewModel.startScan()
-        else { scanAfterPermission = true; permissionLauncher.launch(permissions) }
-    }
 }
 
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
@@ -88,14 +79,13 @@ private data class Destination(val route: String, val label: String, val icon: I
 @Composable
 private fun QingHengRoot(
     vm: AppViewModel,
-    requestScan: () -> Unit,
     chooseFitdaysFile: () -> Unit,
     openFitdays: () -> Unit,
 ) {
     val nav = rememberNavController()
     val destinations = listOf(
         Destination("home", "首页", Icons.Outlined.Home), Destination("progress", "趋势", Icons.Outlined.ShowChart),
-        Destination("measure", "称重", Icons.Outlined.BluetoothSearching), Destination("meals", "饮食", Icons.Outlined.Restaurant),
+        Destination("import", "导入", Icons.Outlined.FileDownload), Destination("meals", "饮食", Icons.Outlined.Restaurant),
         Destination("settings", "我的", Icons.Outlined.Person),
     )
     val backStack by nav.currentBackStackEntryAsState()
@@ -113,9 +103,9 @@ private fun QingHengRoot(
         }
     ) { padding ->
         NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
-            composable("home") { DashboardScreen(vm, { nav.navigate("measure") }, { nav.navigate("meals") }) }
+            composable("home") { DashboardScreen(vm, { nav.navigate("import") }, { nav.navigate("meals") }) }
             composable("progress") { ProgressScreen(vm) }
-            composable("measure") { MeasureScreen(vm, requestScan, chooseFitdaysFile, openFitdays) }
+            composable("import") { ImportScreen(vm, chooseFitdaysFile, openFitdays) }
             composable("meals") { MealsScreen(vm) }
             composable("settings") { SettingsScreen(vm) }
         }

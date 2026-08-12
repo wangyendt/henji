@@ -8,7 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddAPhoto
-import androidx.compose.material.icons.outlined.Bluetooth
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun DashboardScreen(vm: AppViewModel, onMeasure: () -> Unit, onMeal: () -> Unit) {
+fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) {
     val records by vm.weights.collectAsState()
     val meals by vm.meals.collectAsState()
     val settings by vm.settings.collectAsState()
@@ -55,7 +55,7 @@ fun DashboardScreen(vm: AppViewModel, onMeasure: () -> Unit, onMeal: () -> Unit)
             }
         }
         Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onMeasure, Modifier.weight(1f).height(52.dp)) { Icon(Icons.Outlined.Bluetooth, null); Spacer(Modifier.width(7.dp)); Text("实时称重") }
+            Button(onImport, Modifier.weight(1f).height(52.dp)) { Icon(Icons.Outlined.FileDownload, null); Spacer(Modifier.width(7.dp)); Text("导入数据") }
             OutlinedButton(onMeal, Modifier.weight(1f).height(52.dp)) { Icon(Icons.Outlined.AddAPhoto, null); Spacer(Modifier.width(7.dp)); Text("记录饮食") }
         }
         Text("身体数据", Modifier.padding(horizontal = 20.dp), fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -81,4 +81,3 @@ fun DashboardScreen(vm: AppViewModel, onMeasure: () -> Unit, onMeal: () -> Unit)
         Text("体脂秤通过 BIA 阻抗与个人资料估算身体成分，结果用于日常趋势参考。", Modifier.padding(horizontal = 24.dp).padding(bottom = 24.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-
