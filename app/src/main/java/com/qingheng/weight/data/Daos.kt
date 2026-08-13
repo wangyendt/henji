@@ -76,3 +76,24 @@ interface MealDao {
 
     @Delete suspend fun delete(records: List<MealRecord>)
 }
+
+@Dao
+interface WellnessDao {
+    @Query("SELECT * FROM daily_wellness ORDER BY dateEpochDay DESC")
+    fun observeAll(): Flow<List<DailyWellnessRecord>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(records: List<DailyWellnessRecord>)
+
+    @Query("SELECT * FROM daily_wellness WHERE dateEpochDay = :dateEpochDay LIMIT 1")
+    suspend fun find(dateEpochDay: Long): DailyWellnessRecord?
+
+    @Query("SELECT * FROM daily_briefings ORDER BY dateEpochDay DESC")
+    fun observeBriefings(): Flow<List<DailyBriefingRecord>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBriefing(record: DailyBriefingRecord)
+
+    @Query("SELECT * FROM daily_briefings WHERE dateEpochDay = :dateEpochDay LIMIT 1")
+    suspend fun findBriefing(dateEpochDay: Long): DailyBriefingRecord?
+}

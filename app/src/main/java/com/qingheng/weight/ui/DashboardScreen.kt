@@ -28,6 +28,7 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
     val records by vm.weights.collectAsState()
     val meals by vm.meals.collectAsState()
     val settings by vm.settings.collectAsState()
+    val briefings by vm.dailyBriefings.collectAsState()
     val unit = settings.weightUnit
     val earliestKg = remember(records) { earliestWeightKg(records) }
     val dailyHistory = remember(records) { groupWeightRecordsByDay(records) }
@@ -136,6 +137,11 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
                 Icon(Icons.Outlined.AddAPhoto, null); Spacer(Modifier.width(7.dp)); Text("记录饮食")
             }
         }
+        DailyBriefingCard(
+            briefing = briefings.firstOrNull(),
+            onRefresh = vm::generateYesterdayBriefing,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp),
+        )
         Text("身体数据", Modifier.padding(horizontal = 20.dp), fontWeight = FontWeight.Bold, fontSize = 18.sp)
         Spacer(Modifier.height(10.dp))
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

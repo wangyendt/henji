@@ -11,13 +11,18 @@ import com.qingheng.weight.health.HealthSyncScheduler
 import com.qingheng.weight.settings.AppSettings
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as HengJiApp
+    private var openedSyncCompleted = false
     val weights = app.repository.weightRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val meals = app.repository.mealRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val mealFoodItems = app.repository.mealFoodItems.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val foodFrequencies = app.repository.foodFrequencies.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val wellness = app.repository.wellnessRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val dailyBriefings = app.repository.dailyBriefings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val settings = app.settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
     val isSaving = MutableStateFlow(false)
     val fitdaysImportState = MutableStateFlow<FitdaysImportState>(FitdaysImportState.Idle)
@@ -44,29 +49,38 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun healthPermissionsToRequest(): Set<String> = app.healthConnectSync.permissionsToRequest()
 
     fun refreshHealthConnect(autoSync: Boolean = true) = viewModelScope.launch {
-        val permission = runCatching { app.healthConnectSync.permissionState() }.getOrElse {
-            healthSyncState.value = HealthSyncState.Error(it.message ?: "Health Connect 状态读取失败", false)
+        val permissionResult = runCatching { app.healthConnectSync.permissionState() }
+        val permission = permissionResult.getOrNull()
+        if (permission == null) {
+            healthSyncState.value = HealthSyncState.Error(
+                permissionResult.exceptionOrNull()?.message ?: "Health Connect 状态读取失败",
+                false,
+            )
+            if (autoSync) catchUpYesterdayBriefing()
             return@launch
         }
         when {
             !permission.available -> healthSyncState.value = HealthSyncState.Unavailable
-            !permission.coreGranted -> healthSyncState.value = HealthSyncState.PermissionRequired
+            !permission.anyHealthGranted -> healthSyncState.value = HealthSyncState.PermissionRequired
             autoSync -> syncHealthConnect(permission)
             else -> healthSyncState.value = HealthSyncState.Ready(permission.backgroundGranted)
         }
+        if (autoSync) catchUpYesterdayBriefing()
     }
 
     fun onHealthPermissionsResult() = viewModelScope.launch {
         val permission = app.healthConnectSync.permissionState()
         if (permission.backgroundGranted) HealthSyncScheduler.schedule(getApplication())
-        if (permission.coreGranted) syncHealthConnect(permission)
+        if (permission.anyHealthGranted) syncHealthConnect(permission)
         else healthSyncState.value = HealthSyncState.PermissionRequired
+        catchUpYesterdayBriefing(forceCheck = true)
     }
 
     fun syncHealthConnectNow() = viewModelScope.launch {
         val permission = app.healthConnectSync.permissionState()
-        if (permission.coreGranted) syncHealthConnect(permission)
+        if (permission.anyHealthGranted) syncHealthConnect(permission)
         else healthSyncState.value = HealthSyncState.PermissionRequired
+        catchUpYesterdayBriefing(forceCheck = true)
     }
 
     private suspend fun syncHealthConnect(permission: HealthPermissionState) {
@@ -74,7 +88,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         healthSyncState.value = HealthSyncState.Syncing
         healthSyncState.value = runCatching {
             val result = app.healthConnectSync.sync(app.settings.values.first().profile)
-            HealthSyncState.Success(result.recordsRead, result.recordsChanged, permission.backgroundGranted)
+            HealthSyncState.Success(
+                recordsRead = result.recordsRead,
+                recordsChanged = result.recordsChanged,
+                wellnessDaysChanged = result.wellnessDaysChanged,
+                backgroundEnabled = permission.backgroundGranted,
+                sleepEnabled = permission.sleepGranted,
+                activityEnabled = permission.activityGranted,
+            )
         }.getOrElse {
             HealthSyncState.Error(it.message ?: "自动同步失败", true)
         }
@@ -92,6 +113,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteMeal(record: MealRecord) = viewModelScope.launch { app.repository.deleteMeal(record) }
     fun deleteMeals(records: List<MealRecord>) = viewModelScope.launch { app.repository.deleteMeals(records) }
     suspend fun saveMeal(record: MealRecord, foodItems: List<MealFoodItem>) = app.repository.saveMeal(record, foodItems)
+    fun generateYesterdayBriefing() = HealthSyncScheduler.runBriefingNow(getApplication())
+
+    private suspend fun catchUpYesterdayBriefing(forceCheck: Boolean = false) {
+        if (openedSyncCompleted && !forceCheck) return
+        openedSyncCompleted = true
+        val date = LocalDate.now().minusDays(1)
+        val yesterday = date.toEpochDay()
+        val briefing = app.repository.findBriefing(yesterday)
+        val wellness = app.repository.findWellness(yesterday)
+        val zone = ZoneId.systemDefault()
+        val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val mealCount = app.repository.mealRecords.first().count { it.createdAt in start until end }
+        val stale = briefing == null || briefing.mealCount != mealCount ||
+            (wellness != null && briefing.generatedAt < wellness.syncedAt)
+        if (stale) HealthSyncScheduler.runBriefingNow(getApplication())
+    }
 
 }
 
@@ -108,6 +146,13 @@ sealed interface HealthSyncState {
     data object PermissionRequired : HealthSyncState
     data object Syncing : HealthSyncState
     data class Ready(val backgroundEnabled: Boolean) : HealthSyncState
-    data class Success(val recordsRead: Int, val recordsChanged: Int, val backgroundEnabled: Boolean) : HealthSyncState
+    data class Success(
+        val recordsRead: Int,
+        val recordsChanged: Int,
+        val wellnessDaysChanged: Int,
+        val backgroundEnabled: Boolean,
+        val sleepEnabled: Boolean,
+        val activityEnabled: Boolean,
+    ) : HealthSyncState
     data class Error(val message: String, val permissionGranted: Boolean) : HealthSyncState
 }

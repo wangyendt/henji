@@ -3,11 +3,17 @@ package com.qingheng.weight.data
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
-class AppRepository(private val weights: WeightDao, private val meals: MealDao) {
+class AppRepository(
+    private val weights: WeightDao,
+    private val meals: MealDao,
+    private val wellness: WellnessDao,
+) {
     val weightRecords: Flow<List<WeightRecord>> = weights.observeAll()
     val mealRecords: Flow<List<MealRecord>> = meals.observeAll()
     val mealFoodItems: Flow<List<MealFoodItem>> = meals.observeAllFoodItems()
     val foodFrequencies: Flow<List<FoodMealFrequency>> = meals.observeFoodFrequencies()
+    val wellnessRecords: Flow<List<DailyWellnessRecord>> = wellness.observeAll()
+    val dailyBriefings: Flow<List<DailyBriefingRecord>> = wellness.observeBriefings()
 
     private suspend fun saveManualMeasurement(metrics: BodyMetrics) {
         weights.insert(
@@ -83,6 +89,10 @@ class AppRepository(private val weights: WeightDao, private val meals: MealDao) 
     suspend fun deleteWeight(record: WeightRecord) = weights.delete(record)
     suspend fun deleteMeal(record: MealRecord) = meals.delete(record)
     suspend fun deleteMeals(records: List<MealRecord>) = meals.delete(records)
+    suspend fun saveWellness(records: List<DailyWellnessRecord>) = wellness.insert(records)
+    suspend fun findWellness(dateEpochDay: Long) = wellness.find(dateEpochDay)
+    suspend fun saveBriefing(record: DailyBriefingRecord) = wellness.insertBriefing(record)
+    suspend fun findBriefing(dateEpochDay: Long) = wellness.findBriefing(dateEpochDay)
 }
 
 data class HealthConnectMeasurement(

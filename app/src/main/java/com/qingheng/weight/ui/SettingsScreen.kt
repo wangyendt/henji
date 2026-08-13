@@ -61,6 +61,15 @@ fun SettingsScreen(vm: AppViewModel) {
             }, Modifier.fillMaxWidth()) { Text("保存身体资料") }
         }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        Text("每日健康小结", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "每天上午 10 点整理前一天的饮食、运动与睡眠，并发送通知。若系统推迟后台任务，下次打开衡迹时会同步并补算最近 30 天。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedButton(vm::generateYesterdayBriefing, Modifier.fillMaxWidth()) { Text("重新生成昨天的小结") }
+        }
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("CodexTask 饮食识别", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium)
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("填写运行 CodexTask 服务的电脑局域网地址和专用令牌。手机与电脑需要连接同一局域网。", style = MaterialTheme.typography.bodySmall)

@@ -19,9 +19,9 @@ class HengJiApp : Application() {
     override fun onCreate() {
         super.onCreate()
         val database = Room.databaseBuilder(this, AppDatabase::class.java, "qingheng.db")
-            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
             .build()
-        repository = AppRepository(database.weightDao(), database.mealDao())
+        repository = AppRepository(database.weightDao(), database.mealDao(), database.wellnessDao())
         settings = SettingsStore(this)
         healthConnectSync = HealthConnectSync(this, repository)
         HealthSyncScheduler.schedule(this)
