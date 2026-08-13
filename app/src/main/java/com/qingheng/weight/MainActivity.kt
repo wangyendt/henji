@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import com.qingheng.weight.ui.*
 
@@ -94,6 +95,20 @@ class MainActivity : ComponentActivity() {
 
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
 
+private const val HOME_ROUTE = "home"
+
+private fun NavHostController.openTopLevel(route: String) {
+    if (route == HOME_ROUTE) {
+        if (currentDestination?.route != HOME_ROUTE) popBackStack(HOME_ROUTE, inclusive = false)
+        return
+    }
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
 @Composable
 private fun HengJiRoot(
     vm: AppViewModel,
@@ -103,7 +118,7 @@ private fun HengJiRoot(
 ) {
     val nav = rememberNavController()
     val destinations = listOf(
-        Destination("home", "首页", Icons.Outlined.Home), Destination("progress", "趋势", Icons.Outlined.ShowChart),
+        Destination(HOME_ROUTE, "首页", Icons.Outlined.Home), Destination("progress", "趋势", Icons.Outlined.ShowChart),
         Destination("import", "导入", Icons.Outlined.FileDownload), Destination("meals", "饮食", Icons.Outlined.Restaurant),
         Destination("settings", "我的", Icons.Outlined.Person),
     )
@@ -114,15 +129,15 @@ private fun HengJiRoot(
                 destinations.forEach { item ->
                     NavigationBarItem(
                         selected = backStack?.destination?.route == item.route,
-                        onClick = { nav.navigate(item.route) { popUpTo(nav.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } },
+                        onClick = { nav.openTopLevel(item.route) },
                         icon = { Icon(item.icon, item.label) }, label = { Text(item.label) },
                     )
                 }
             }
         }
     ) { padding ->
-        NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding)) {
-            composable("home") { DashboardScreen(vm, { nav.navigate("import") }, { nav.navigate("meals") }) }
+        NavHost(nav, startDestination = HOME_ROUTE, modifier = Modifier.padding(padding)) {
+            composable(HOME_ROUTE) { DashboardScreen(vm, { nav.openTopLevel("import") }, { nav.openTopLevel("meals") }) }
             composable("progress") { ProgressScreen(vm) }
             composable("import") {
                 ImportScreen(
