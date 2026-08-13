@@ -102,6 +102,9 @@ private class FakeWeightDao : WeightDao {
 
 private class FakeMealDao : MealDao {
     override fun observeAll(): Flow<List<MealRecord>> = MutableStateFlow(emptyList())
+    override fun observeFoodFrequencies(): Flow<List<FoodMealFrequency>> = MutableStateFlow(emptyList())
     override suspend fun insert(record: MealRecord) = Unit
+    override suspend fun insertFoodItems(items: List<MealFoodItem>) = Unit
+    override suspend fun deleteFoodItems(mealId: String) = Unit
     override suspend fun delete(record: MealRecord) = Unit
 }

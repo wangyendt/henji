@@ -19,7 +19,7 @@ class HengJiApp : Application() {
     override fun onCreate() {
         super.onCreate()
         val database = Room.databaseBuilder(this, AppDatabase::class.java, "qingheng.db")
-            .fallbackToDestructiveMigration()
+            .addMigrations(AppDatabase.MIGRATION_1_2)
             .build()
         repository = AppRepository(database.weightDao(), database.mealDao())
         settings = SettingsStore(this)

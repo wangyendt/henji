@@ -16,6 +16,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as HengJiApp
     val weights = app.repository.weightRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val meals = app.repository.mealRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val foodFrequencies = app.repository.foodFrequencies.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val settings = app.settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
     val isSaving = MutableStateFlow(false)
     val fitdaysImportState = MutableStateFlow<FitdaysImportState>(FitdaysImportState.Idle)
@@ -88,7 +89,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun deleteWeight(record: WeightRecord) = viewModelScope.launch { app.repository.deleteWeight(record) }
     fun deleteMeal(record: MealRecord) = viewModelScope.launch { app.repository.deleteMeal(record) }
-    suspend fun saveMeal(record: MealRecord) = app.repository.saveMeal(record)
+    suspend fun saveMeal(record: MealRecord, foodItems: List<MealFoodItem>) = app.repository.saveMeal(record, foodItems)
 
 }
 

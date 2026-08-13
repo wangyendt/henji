@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -39,8 +40,33 @@ interface MealDao {
     @Query("SELECT * FROM meal_records ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<MealRecord>>
 
+    @Query(
+        """
+        SELECT canonicalName,
+               COUNT(DISTINCT mealId) AS mealCount,
+               SUM((estimatedGramsLow + estimatedGramsHigh) / 2.0) AS estimatedGrams
+        FROM meal_food_items
+        GROUP BY canonicalName
+        ORDER BY mealCount DESC, canonicalName COLLATE NOCASE ASC
+        """,
+    )
+    fun observeFoodFrequencies(): Flow<List<FoodMealFrequency>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: MealRecord)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFoodItems(items: List<MealFoodItem>)
+
+    @Query("DELETE FROM meal_food_items WHERE mealId = :mealId")
+    suspend fun deleteFoodItems(mealId: String)
+
+    @Transaction
+    suspend fun insert(record: MealRecord, foodItems: List<MealFoodItem>) {
+        insert(record)
+        deleteFoodItems(record.id)
+        if (foodItems.isNotEmpty()) insertFoodItems(foodItems)
+    }
 
     @Delete suspend fun delete(record: MealRecord)
 }

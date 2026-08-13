@@ -61,6 +61,12 @@ class CodexTaskClientTest {
         val submission = JSONObject(bodies[0])
         assertEquals("direct", submission.getString("backend"))
         assertTrue(submission.has("schema"))
+        assertTrue(
+            submission.getJSONObject("schema")
+                .getJSONObject("properties")
+                .has("foods"),
+        )
+        assertTrue(submission.getString("prompt").contains("同一餐同一种食物只保留一项"))
         val image = submission.getJSONArray("images").getJSONObject(0)
         assertEquals("image/jpeg", image.getString("mimeType"))
         assertEquals("AQID", image.getString("dataBase64"))

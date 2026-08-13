@@ -1,6 +1,8 @@
 package com.qingheng.weight.data
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "weight_records")
@@ -44,6 +46,37 @@ data class MealRecord(
     val rawAnalysis: String? = null,
 )
 
+@Entity(
+    tableName = "meal_food_items",
+    foreignKeys = [
+        ForeignKey(
+            entity = MealRecord::class,
+            parentColumns = ["id"],
+            childColumns = ["mealId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("mealId"), Index("canonicalName")],
+)
+data class MealFoodItem(
+    @PrimaryKey val id: String,
+    val mealId: String,
+    val canonicalName: String,
+    val displayName: String,
+    val category: String,
+    val estimatedGramsLow: Double,
+    val estimatedGramsHigh: Double,
+    val calorieLow: Double,
+    val calorieHigh: Double,
+    val confidence: Double,
+)
+
+data class FoodMealFrequency(
+    val canonicalName: String,
+    val mealCount: Int,
+    val estimatedGrams: Double,
+)
+
 data class UserProfile(
     val heightCm: Int = 170,
     val birthYear: Int = 1990,
@@ -78,4 +111,3 @@ data class BodyMetrics(
     val isEstimated: Boolean = true,
     val rawPacketHex: String? = null,
 )
-

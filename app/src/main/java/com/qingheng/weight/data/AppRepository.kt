@@ -6,6 +6,7 @@ import java.util.UUID
 class AppRepository(private val weights: WeightDao, private val meals: MealDao) {
     val weightRecords: Flow<List<WeightRecord>> = weights.observeAll()
     val mealRecords: Flow<List<MealRecord>> = meals.observeAll()
+    val foodFrequencies: Flow<List<FoodMealFrequency>> = meals.observeFoodFrequencies()
 
     private suspend fun saveManualMeasurement(metrics: BodyMetrics) {
         weights.insert(
@@ -77,7 +78,7 @@ class AppRepository(private val weights: WeightDao, private val meals: MealDao) 
         return true
     }
 
-    suspend fun saveMeal(record: MealRecord) = meals.insert(record)
+    suspend fun saveMeal(record: MealRecord, foodItems: List<MealFoodItem>) = meals.insert(record, foodItems)
     suspend fun deleteWeight(record: WeightRecord) = weights.delete(record)
     suspend fun deleteMeal(record: MealRecord) = meals.delete(record)
 }

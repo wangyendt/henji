@@ -229,12 +229,19 @@ class CodexTaskClient(
             "image/gif" to ".gif",
         )
 
-        private const val ANALYSIS_PROMPT = """
-识别照片中的全部菜品和主要食材，并按照片中可见的一人份估算：
-1. 总热量区间（kcal）；
-2. 蛋白质、碳水化合物、脂肪区间（g）；
-3. 一条简短、可执行的饮食建议。
-不确定时给合理区间，不要把估计写成精确测量值。只输出符合所给 JSON Schema 的 JSON，不要 Markdown、代码围栏或额外说明。
+        internal const val ANALYSIS_PROMPT = """
+你是饮食照片结构化记录器。识别照片中肉眼可见、具有独立食用意义的全部主要食物，并返回严格符合 JSON Schema 的结果。
+
+结构化规则：
+1. dishes 是便于用户阅读的菜品或组合名称。
+2. foods 必须把复合菜拆成适合跨餐统计的主要食物；同一餐同一种食物只保留一项。
+3. foods[].name 使用简短、稳定的中文通用食物名，不包含烹饪方式、份量、品牌或形容词。例如“煎鸡蛋/荷包蛋”统一为“鸡蛋”，“清炒生菜”统一为“生菜”，“酸菜配菜”统一为“酸菜”。
+4. foods[].displayName 描述照片中实际形态，例如“煎鸡蛋”“叉烧”。如果加工后名称比原料更适合日常阅读，可保留在 displayName，但 name 仍使用基础食物名，例如叉烧的 name 为“猪肉”、displayName 为“叉烧”。
+5. 只记录照片可辨认的主要食物；忽略油、盐、酱汁、葱姜蒜、香辛料等微量配料，不凭空补充看不见的食材。
+6. estimatedGrams 与 caloriesKcal 都是照片中可食部分的一人份估算区间，min 不得大于 max。每项热量之和与总热量应基本一致。
+7. confidence 表示图片识别把握，范围 0 到 1；不确定时降低 confidence，不要编造精确值。
+8. 蛋白质、碳水、脂肪返回整餐估算区间。advice 用中文给一条简短、可执行的建议。
+9. 只输出 JSON，不要 Markdown、代码围栏或额外说明。
 """
 
         private const val MEAL_SCHEMA = """
@@ -242,13 +249,30 @@ class CodexTaskClient(
   "type": "object",
   "properties": {
     "dishes": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "foods": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "displayName": {"type": "string", "minLength": 1},
+          "category": {"type": "string", "enum": ["主食", "肉蛋水产", "蔬菜", "水果", "奶豆", "坚果", "饮品", "其他"]},
+          "estimatedGrams": {"${'$'}ref": "#/${'$'}defs/range"},
+          "caloriesKcal": {"${'$'}ref": "#/${'$'}defs/range"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "required": ["name", "displayName", "category", "estimatedGrams", "caloriesKcal", "confidence"],
+        "additionalProperties": false
+      }
+    },
     "caloriesKcal": {"${'$'}ref": "#/${'$'}defs/range"},
     "proteinGrams": {"${'$'}ref": "#/${'$'}defs/range"},
     "carbohydrateGrams": {"${'$'}ref": "#/${'$'}defs/range"},
     "fatGrams": {"${'$'}ref": "#/${'$'}defs/range"},
     "advice": {"type": "string", "minLength": 1}
   },
-  "required": ["dishes", "caloriesKcal", "proteinGrams", "carbohydrateGrams", "fatGrams", "advice"],
+  "required": ["dishes", "foods", "caloriesKcal", "proteinGrams", "carbohydrateGrams", "fatGrams", "advice"],
   "additionalProperties": false,
   "${'$'}defs": {
     "range": {

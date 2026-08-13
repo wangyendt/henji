@@ -12,15 +12,48 @@ data class EstimateRange(
     val max: Double,
 )
 
+data class RecognizedFood(
+    val name: String,
+    val displayName: String,
+    val category: String,
+    val estimatedGrams: EstimateRange,
+    val caloriesKcal: EstimateRange,
+    val confidence: Double,
+)
+
 /** Structured result returned after analysing one food photo. */
 data class MealAnalysis(
     val dishes: List<String>,
+    val foods: List<RecognizedFood>,
     val caloriesKcal: EstimateRange,
     val proteinGrams: EstimateRange,
     val carbohydrateGrams: EstimateRange,
     val fatGrams: EstimateRange,
     val advice: String,
-)
+) {
+    fun toJsonString(): String = JSONObject().apply {
+        put("dishes", JSONArray(dishes))
+        put("foods", JSONArray().apply {
+            foods.forEach { food ->
+                put(JSONObject().apply {
+                    put("name", food.name)
+                    put("displayName", food.displayName)
+                    put("category", food.category)
+                    put("estimatedGrams", food.estimatedGrams.toJson())
+                    put("caloriesKcal", food.caloriesKcal.toJson())
+                    put("confidence", food.confidence)
+                })
+            }
+        })
+        put("caloriesKcal", caloriesKcal.toJson())
+        put("proteinGrams", proteinGrams.toJson())
+        put("carbohydrateGrams", carbohydrateGrams.toJson())
+        put("fatGrams", fatGrams.toJson())
+        put("advice", advice)
+    }.toString()
+
+    private fun EstimateRange.toJson() = JSONObject().put("min", min).put("max", max)
+}
 
 /** Parses the model text separately from Android/network code, so it is usable in pure JVM tests. */
 object MealAnalysisParser {
@@ -37,12 +70,41 @@ object MealAnalysisParser {
         val macros = root.optJSONObject("macros")
         return MealAnalysis(
             dishes = dishes,
+            foods = parseFoods(root),
             caloriesKcal = parseRange(root, null, "caloriesKcal", "calories", "totalCalories"),
             proteinGrams = parseRange(root, macros, "proteinGrams", "protein"),
             carbohydrateGrams = parseRange(root, macros, "carbohydrateGrams", "carbohydrates", "carbs"),
             fatGrams = parseRange(root, macros, "fatGrams", "fat"),
             advice = requiredText(root, "advice", "suggestion"),
         )
+    }
+
+    private fun parseFoods(root: JSONObject): List<RecognizedFood> {
+        val array = root.optJSONArray("foods")
+            ?: throw MealAnalysisParseException("模型结果缺少结构化食物列表 foods")
+        val foods = buildList {
+            for (index in 0 until array.length()) {
+                val value = array.optJSONObject(index)
+                    ?: throw MealAnalysisParseException("foods[$index] 必须是对象")
+                val confidence = number(value.opt("confidence"))
+                    ?: throw MealAnalysisParseException("foods[$index] 缺少 confidence")
+                if (!confidence.isFinite() || confidence !in 0.0..1.0) {
+                    throw MealAnalysisParseException("foods[$index].confidence 必须在 0 到 1 之间")
+                }
+                add(
+                    RecognizedFood(
+                        name = requiredText(value, "name"),
+                        displayName = requiredText(value, "displayName"),
+                        category = requiredText(value, "category"),
+                        estimatedGrams = parseRange(value, null, "estimatedGrams"),
+                        caloriesKcal = parseRange(value, null, "caloriesKcal"),
+                        confidence = confidence,
+                    ),
+                )
+            }
+        }
+        if (foods.isEmpty()) throw MealAnalysisParseException("模型结果中的结构化食物列表为空")
+        return foods.distinctBy { it.name.trim().lowercase() }
     }
 
     private fun parseDishes(root: JSONObject): List<String> {

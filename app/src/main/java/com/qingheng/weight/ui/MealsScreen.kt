@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import com.qingheng.weight.data.MealFoodItem
 import com.qingheng.weight.data.MealRecord
 import com.qingheng.weight.meal.CodexTaskClient
 import com.qingheng.weight.meal.MealAnalysis
@@ -32,8 +33,10 @@ import java.io.File
 import java.util.UUID
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun MealsScreen(vm: AppViewModel) {
     val meals by vm.meals.collectAsState()
+    val foodFrequencies by vm.foodFrequencies.collectAsState()
     val settings by vm.settings.collectAsState()
     val context = LocalContext.current
     var selectedImage by remember { mutableStateOf<String?>(null) }
@@ -67,6 +70,34 @@ fun MealsScreen(vm: AppViewModel) {
                 }
             }
             Spacer(Modifier.height(18.dp))
+            if (foodFrequencies.isNotEmpty()) {
+                Text("常吃食物", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "同一种食物每餐只计一次",
+                    Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(
+                    Modifier.padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    foodFrequencies.take(12).forEach { food ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Text(
+                                "${food.canonicalName} ${food.mealCount}顿",
+                                Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+            }
             Text("最近记录", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium)
         }
         items(meals, key = { it.id }) { meal ->
@@ -130,6 +161,13 @@ private fun createMealPhotoUri(context: android.content.Context): Uri? = runCatc
             imageUri?.let { AsyncImage(it, null, Modifier.fillMaxWidth().height(150.dp), contentScale = ContentScale.Crop) }
             if (analyzing) LinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            analysis?.foods?.takeIf { it.isNotEmpty() }?.let { foods ->
+                Text(
+                    "可统计食物：${foods.joinToString("、") { it.name }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Emerald,
+                )
+            }
             OutlinedTextField(name, { name = it }, label = { Text("菜品") }, modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(calorieLow, { calorieLow = it.filter(Char::isDigit) }, label = { Text("最低 kcal") }, modifier = Modifier.weight(1f))
@@ -142,16 +180,31 @@ private fun createMealPhotoUri(context: android.content.Context): Uri? = runCatc
         confirmButton = { Button({
             val low = calorieLow.toIntOrNull() ?: 0; val high = calorieHigh.toIntOrNull() ?: low
             val result = analysis
+            val mealId = UUID.randomUUID().toString()
+            val foodItems = result?.foods.orEmpty().mapIndexed { index, food ->
+                MealFoodItem(
+                    id = "$mealId:$index",
+                    mealId = mealId,
+                    canonicalName = food.name,
+                    displayName = food.displayName,
+                    category = food.category,
+                    estimatedGramsLow = food.estimatedGrams.min,
+                    estimatedGramsHigh = food.estimatedGrams.max,
+                    calorieLow = food.caloriesKcal.min,
+                    calorieHigh = food.caloriesKcal.max,
+                    confidence = food.confidence,
+                )
+            }
             scope.launch {
                 vm.saveMeal(MealRecord(
-                    id = UUID.randomUUID().toString(), createdAt = System.currentTimeMillis(), mealType = "餐食",
+                    id = mealId, createdAt = System.currentTimeMillis(), mealType = "餐食",
                     imageUri = imageUri, foodNames = name.ifBlank { "未命名餐食" }, calorieLow = minOf(low, high), calorieHigh = maxOf(low, high),
                     proteinGrams = result?.proteinGrams?.let { (it.min + it.max) / 2 },
                     carbsGrams = result?.carbohydrateGrams?.let { (it.min + it.max) / 2 },
                     fatGrams = result?.fatGrams?.let { (it.min + it.max) / 2 },
                     advice = advice.ifBlank { "已记录，可补充蔬菜并注意份量。" }, confidence = if (result != null) 0.7 else null,
-                    rawAnalysis = result?.toString(),
-                )); dismiss()
+                    rawAnalysis = result?.toJsonString(),
+                ), foodItems); dismiss()
             }
         }, enabled = name.isNotBlank() && !analyzing) { Text("保存") } },
         dismissButton = { TextButton(dismiss) { Text("取消") } },
