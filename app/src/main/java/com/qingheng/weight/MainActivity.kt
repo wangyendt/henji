@@ -40,8 +40,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleSharedFitdaysFile(intent)
         setContent {
-            QingHengTheme {
-                QingHengRoot(viewModel, ::chooseFitdaysFile, ::openFitdays, ::requestHealthConnectPermissions)
+            HengJiTheme {
+                HengJiRoot(viewModel, ::chooseFitdaysFile, ::openFitdays, ::requestHealthConnectPermissions)
             }
         }
     }
@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
 private data class Destination(val route: String, val label: String, val icon: ImageVector)
 
 @Composable
-private fun QingHengRoot(
+private fun HengJiRoot(
     vm: AppViewModel,
     chooseFitdaysFile: () -> Unit,
     openFitdays: () -> Unit,

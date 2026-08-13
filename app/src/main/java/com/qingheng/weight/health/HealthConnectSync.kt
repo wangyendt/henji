@@ -64,7 +64,7 @@ class HealthConnectSync(context: Context, private val repository: AppRepository)
 
     suspend fun sync(profile: UserProfile): HealthSyncResult {
         val permission = permissionState()
-        check(permission.coreGranted) { "轻衡还没有 Health Connect 读取权限" }
+        check(permission.coreGranted) { "衡迹还没有 Health Connect 读取权限" }
         val end = Instant.now().plusSeconds(60)
         val start = end.minus(Duration.ofDays(30))
         val weights = readAll<WeightRecord>(start, end)

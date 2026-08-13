@@ -8,7 +8,7 @@ import com.qingheng.weight.health.HealthConnectSync
 import com.qingheng.weight.health.HealthSyncScheduler
 import com.qingheng.weight.settings.SettingsStore
 
-class QingHengApp : Application() {
+class HengJiApp : Application() {
     lateinit var repository: AppRepository
         private set
     lateinit var settings: SettingsStore

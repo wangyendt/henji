@@ -6,13 +6,13 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.qingheng.weight.QingHengApp
+import com.qingheng.weight.HengJiApp
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
 class HealthSyncWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val app = applicationContext as QingHengApp
+        val app = applicationContext as HengJiApp
         val permission = runCatching { app.healthConnectSync.permissionState() }.getOrNull()
             ?: return Result.retry()
         if (!permission.coreGranted || !permission.backgroundGranted) return Result.success()

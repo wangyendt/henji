@@ -1,4 +1,4 @@
-# 轻衡 Android
+# 衡迹 Android
 
 本地优先的 Android 体重、身体成分与饮食记录 App。它可以实时扫描兼容 Fitdays/QN/ICOMON、Bluetooth SIG 和部分小米协议的蓝牙体脂秤，保存趋势，并通过自托管 CodexTask 服务识别餐食照片。
 
@@ -80,4 +80,3 @@ codex-task serve --host 0.0.0.0 --port 7777 --token-file TOKEN_FILE
 ## License
 
 MIT
-

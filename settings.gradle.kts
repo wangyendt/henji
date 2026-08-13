@@ -14,6 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "QingHengAndroid"
+rootProject.name = "HengJiAndroid"
 include(":app")
-

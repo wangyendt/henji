@@ -4,7 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.qingheng.weight.QingHengApp
+import com.qingheng.weight.HengJiApp
 import com.qingheng.weight.data.*
 import com.qingheng.weight.health.HealthPermissionState
 import com.qingheng.weight.health.HealthSyncScheduler
@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
-    private val app = application as QingHengApp
+    private val app = application as HengJiApp
     val weights = app.repository.weightRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val meals = app.repository.mealRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val settings = app.settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())

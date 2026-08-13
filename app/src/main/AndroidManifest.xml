@@ -16,13 +16,13 @@
     </queries>
 
     <application
-        android:name=".QingHengApp"
+        android:name=".HengJiApp"
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher_foreground"
-        android:label="轻衡"
+        android:label="衡迹"
         android:roundIcon="@drawable/ic_launcher_foreground"
         android:supportsRtl="true"
-        android:theme="@style/Theme.QingHeng"
+        android:theme="@style/Theme.HengJi"
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"

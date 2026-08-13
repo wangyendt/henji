@@ -48,7 +48,7 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
     val todayCalories = meals.filter { it.createdAt >= todayStart }.sumOf { (it.calorieLow + it.calorieHigh) / 2 }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        ScreenHeader("轻衡", "今天也在更了解自己的路上")
+        ScreenHeader("衡迹", "今天也在更了解自己的路上")
         Card(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp),
             shape = RoundedCornerShape(28.dp),

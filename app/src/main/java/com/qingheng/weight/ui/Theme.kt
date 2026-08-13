@@ -22,7 +22,6 @@ private val DarkColors = darkColorScheme(
     secondary = Color(0xFF9BCDBA), background = Color(0xFF0E1714), surface = Color(0xFF14201C),
 )
 
-@Composable fun QingHengTheme(content: @Composable () -> Unit) {
+@Composable fun HengJiTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors, typography = Typography(), content = content)
 }
-

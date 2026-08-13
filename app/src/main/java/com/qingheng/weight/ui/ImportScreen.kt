@@ -59,7 +59,7 @@ fun ImportScreen(
                     Text("Fitdays 全部历史", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     Text("体重、BMI、体脂、体水分、骨骼肌、基础代谢、骨量、蛋白质和身体年龄都会保留；重复导入会自动去重并更新。")
                     Text(
-                        "导出路径：Fitdays → 图表 → 查看历史记录 → 全部 → 中间的导出图标 → 导出。分享文件时选择“轻衡”。",
+                        "导出路径：Fitdays → 图表 → 查看历史记录 → 全部 → 中间的导出图标 → 导出。分享文件时选择“衡迹”。",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Button(chooseFitdaysFile, enabled = importState !is FitdaysImportState.Importing, modifier = Modifier.fillMaxWidth()) {
@@ -108,13 +108,13 @@ fun ImportScreen(
 private fun HealthSyncState.description(): String = when (this) {
     HealthSyncState.Checking -> "正在检查连接状态…"
     HealthSyncState.Unavailable -> "这台手机暂不支持 Health Connect。"
-    HealthSyncState.PermissionRequired -> "授权一次后，Fitdays 的新体重和体脂数据会自动进入轻衡。"
+    HealthSyncState.PermissionRequired -> "授权一次后，Fitdays 的新体重和体脂数据会自动进入衡迹。"
     HealthSyncState.Syncing -> "正在从 Health Connect 读取 Fitdays 新数据…"
-    is HealthSyncState.Ready -> if (backgroundEnabled) "已连接，后台会定时同步。" else "已连接，打开轻衡时会自动同步。"
+    is HealthSyncState.Ready -> if (backgroundEnabled) "已连接，后台会定时同步。" else "已连接，打开衡迹时会自动同步。"
     is HealthSyncState.Success -> buildString {
         append("已连接，本次读取 $recordsRead 条")
         if (recordsChanged > 0) append("，更新 $recordsChanged 条")
-        append(if (backgroundEnabled) "；后台自动同步已开启。" else "；打开轻衡时自动同步。")
+        append(if (backgroundEnabled) "；后台自动同步已开启。" else "；打开衡迹时自动同步。")
     }
     is HealthSyncState.Error -> "同步遇到问题：$message"
 }
