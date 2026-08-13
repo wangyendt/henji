@@ -35,25 +35,20 @@ fun ImportScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
             ) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Health Connect 自动同步", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text("Fitdays 自动同步", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     Text(healthState.description(), style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        "vivo 健康需要先把相应数据写入 Health Connect。若首页仍显示“待同步”，表示 vivo 健康当前没有向系统共享该项目。",
+                        "通过 Health Connect 自动读取 Fitdays 写入的体重和身体成分数据。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     when {
                         healthState.needsPermission() -> Button(requestHealthConnectPermissions, Modifier.fillMaxWidth()) {
-                            Text("授权体重、睡眠与活动数据")
+                            Text("授权 Fitdays 体重数据")
                         }
                         healthState is HealthSyncState.Syncing -> LinearProgressIndicator(Modifier.fillMaxWidth())
                         healthState.permissionGranted() -> {
-                            OutlinedButton(vm::syncHealthConnectNow, Modifier.fillMaxWidth()) { Text("立即同步健康数据") }
-                            if (healthState.needsWellnessPermission()) {
-                                TextButton(requestHealthConnectPermissions, Modifier.fillMaxWidth()) {
-                                    Text("补充睡眠与活动权限")
-                                }
-                            }
+                            OutlinedButton(vm::syncHealthConnectNow, Modifier.fillMaxWidth()) { Text("立即同步 Fitdays 数据") }
                             if (!healthState.backgroundEnabled()) {
                                 TextButton(requestHealthConnectPermissions, Modifier.fillMaxWidth()) { Text("允许后台自动同步") }
                             }
@@ -118,13 +113,12 @@ fun ImportScreen(
 private fun HealthSyncState.description(): String = when (this) {
     HealthSyncState.Checking -> "正在检查连接状态…"
     HealthSyncState.Unavailable -> "这台手机暂不支持 Health Connect。"
-    HealthSyncState.PermissionRequired -> "授权后会同步 Fitdays 体重，以及已写入 Health Connect 的睡眠、步数和运动。"
-    HealthSyncState.Syncing -> "正在从 Health Connect 读取体重、睡眠与活动数据…"
+    HealthSyncState.PermissionRequired -> "授权后会通过 Health Connect 自动同步 Fitdays 体重。"
+    HealthSyncState.Syncing -> "正在从 Health Connect 读取 Fitdays 体重数据…"
     is HealthSyncState.Ready -> if (backgroundEnabled) "已连接，后台会定时同步。" else "已连接，打开衡迹时会自动同步。"
     is HealthSyncState.Success -> buildString {
         append("已连接，本次读取 $recordsRead 条")
         if (recordsChanged > 0) append("，更新 $recordsChanged 条")
-        if (wellnessDaysChanged > 0) append("，健康概览 $wellnessDaysChanged 天")
         append(if (backgroundEnabled) "；后台自动同步已开启。" else "；打开衡迹时自动同步。")
     }
     is HealthSyncState.Error -> "同步遇到问题：$message"
@@ -144,6 +138,3 @@ private fun HealthSyncState.backgroundEnabled(): Boolean = when (this) {
     is HealthSyncState.Success -> backgroundEnabled
     else -> false
 }
-
-private fun HealthSyncState.needsWellnessPermission(): Boolean =
-    this is HealthSyncState.Success && (!sleepEnabled || !activityEnabled)

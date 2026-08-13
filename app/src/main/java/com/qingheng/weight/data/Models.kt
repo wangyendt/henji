@@ -78,36 +78,6 @@ data class FoodMealFrequency(
     val estimatedGrams: Double,
 )
 
-@Entity(tableName = "daily_wellness")
-data class DailyWellnessRecord(
-    @PrimaryKey val dateEpochDay: Long,
-    val sleepMinutes: Int? = null,
-    val deepSleepMinutes: Int? = null,
-    val remSleepMinutes: Int? = null,
-    val steps: Long? = null,
-    val exerciseMinutes: Int? = null,
-    val activeCaloriesKcal: Int? = null,
-    val exerciseTypes: String = "",
-    val sleepSource: String? = null,
-    val activitySource: String? = null,
-    val syncedAt: Long,
-)
-
-@Entity(tableName = "daily_briefings")
-data class DailyBriefingRecord(
-    @PrimaryKey val dateEpochDay: Long,
-    val generatedAt: Long,
-    val mealCount: Int,
-    val calorieLow: Int?,
-    val calorieHigh: Int?,
-    val foodNames: String,
-    val sleepMinutes: Int?,
-    val steps: Long?,
-    val exerciseMinutes: Int?,
-    val activeCaloriesKcal: Int?,
-    val advice: String,
-)
-
 data class UserProfile(
     val heightCm: Int = 170,
     val birthYear: Int = 1990,

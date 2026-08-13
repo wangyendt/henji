@@ -11,7 +11,7 @@ import org.junit.Test
 class HealthConnectRepositoryTest {
     @Test fun mergesAutomaticMetricsIntoFullImportWithoutLosingFitdaysOnlyFields() = runTest {
         val dao = FakeWeightDao()
-        val repository = AppRepository(dao, FakeMealDao(), FakeWellnessDao())
+        val repository = AppRepository(dao, FakeMealDao())
         val measuredAt = 1_723_430_100_000L
         val imported = WeightRecord(
             id = "fitdays-file-id",
@@ -58,7 +58,7 @@ class HealthConnectRepositoryTest {
 
     @Test fun repeatedHealthConnectReadIsIdempotent() = runTest {
         val dao = FakeWeightDao()
-        val repository = AppRepository(dao, FakeMealDao(), FakeWellnessDao())
+        val repository = AppRepository(dao, FakeMealDao())
         val measurement = HealthConnectMeasurement(
             healthConnectId = "record-1",
             measuredAt = 1_723_430_100_000L,
@@ -109,13 +109,4 @@ private class FakeMealDao : MealDao {
     override suspend fun deleteFoodItems(mealId: String) = Unit
     override suspend fun delete(record: MealRecord) = Unit
     override suspend fun delete(records: List<MealRecord>) = Unit
-}
-
-private class FakeWellnessDao : WellnessDao {
-    override fun observeAll(): Flow<List<DailyWellnessRecord>> = MutableStateFlow(emptyList())
-    override suspend fun insert(records: List<DailyWellnessRecord>) = Unit
-    override suspend fun find(dateEpochDay: Long): DailyWellnessRecord? = null
-    override fun observeBriefings(): Flow<List<DailyBriefingRecord>> = MutableStateFlow(emptyList())
-    override suspend fun insertBriefing(record: DailyBriefingRecord) = Unit
-    override suspend fun findBriefing(dateEpochDay: Long): DailyBriefingRecord? = null
 }

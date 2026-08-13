@@ -10,16 +10,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WeightRecord::class,
         MealRecord::class,
         MealFoodItem::class,
-        DailyWellnessRecord::class,
-        DailyBriefingRecord::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun weightDao(): WeightDao
     abstract fun mealDao(): MealDao
-    abstract fun wellnessDao(): WellnessDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -85,6 +82,13 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                     """.trimIndent(),
                 )
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `daily_wellness`")
+                db.execSQL("DROP TABLE IF EXISTS `daily_briefings`")
             }
         }
     }
