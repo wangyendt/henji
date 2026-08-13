@@ -1,0 +1,41 @@
+name: henji-sync
+
+services:
+  api:
+    build: .
+    container_name: henji-sync-api
+    restart: unless-stopped
+    environment:
+      DB_HOST: personal-postgres
+      DB_PORT: "5432"
+      DB_NAME: personal_knowledge
+      DB_USER: henji_sync
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      API_TOKEN_FILE: /run/secrets/api_token
+      TZ: Asia/Shanghai
+    secrets:
+      - db_password
+      - api_token
+    ports:
+      - "100.84.108.13:8787:8080"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+  api_token:
+    file: ./secrets/api_token
+
+networks:
+  backend:
+    external: true
+    name: wayne-backend

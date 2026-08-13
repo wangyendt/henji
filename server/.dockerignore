@@ -1,0 +1,7 @@
+secrets/
+sql/
+README.md
+compose.yaml
+.git/
+__pycache__/
+*.pyc

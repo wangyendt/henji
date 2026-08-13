@@ -9,6 +9,8 @@ import com.qingheng.weight.data.*
 import com.qingheng.weight.health.HealthPermissionState
 import com.qingheng.weight.health.HealthSyncScheduler
 import com.qingheng.weight.settings.AppSettings
+import com.qingheng.weight.sync.PersonalSyncResult
+import com.qingheng.weight.sync.PersonalSyncScheduler
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -19,13 +21,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val mealFoodItems = app.repository.mealFoodItems.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val foodFrequencies = app.repository.foodFrequencies.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val settings = app.settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
+    val syncPendingCount = app.personalSync.pendingCount.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val isSaving = MutableStateFlow(false)
     val fitdaysImportState = MutableStateFlow<FitdaysImportState>(FitdaysImportState.Idle)
     val healthSyncState = MutableStateFlow<HealthSyncState>(HealthSyncState.Checking)
+    val personalSyncState = MutableStateFlow<PersonalSyncState>(PersonalSyncState.Checking)
 
     fun addManualWeight(weight: Double) = viewModelScope.launch {
         val weightKg = settings.value.weightUnit.toKilograms(weight)
-        if (weightKg in 5.0..350.0) app.repository.saveManualWeight(weightKg, settings.value.profile)
+        if (weightKg in 5.0..350.0) {
+            app.repository.saveManualWeight(weightKg, settings.value.profile)
+            PersonalSyncScheduler.enqueueNow(getApplication())
+        }
     }
 
     fun importFitdaysHistory(uri: Uri) = viewModelScope.launch {
@@ -35,7 +42,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 FitdaysHistoryImporter(getApplication<Application>().contentResolver).read(uri)
             }
             if (parsed.records.isEmpty()) error("文件中没有可导入的称重记录")
-            FitdaysImportState.Success(app.repository.importFitdaysHistory(parsed))
+            FitdaysImportState.Success(app.repository.importFitdaysHistory(parsed)).also {
+                PersonalSyncScheduler.enqueueNow(getApplication())
+            }
         }.getOrElse { error ->
             FitdaysImportState.Error(error.message ?: "导入失败，请重新从 Fitdays 导出")
         }
@@ -87,20 +96,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }.getOrElse {
             HealthSyncState.Error(it.message ?: "自动同步失败", true)
         }
+        syncPersonalDataInternal()
     }
 
     fun updateProfile(profile: UserProfile) = viewModelScope.launch { app.settings.updateProfile(profile) }
     fun updateService(url: String, token: String) = viewModelScope.launch { app.settings.updateService(url, token) }
+    fun updatePersonalSync(url: String, token: String) = viewModelScope.launch {
+        app.settings.updatePersonalSync(url, token)
+        syncPersonalDataInternal()
+        PersonalSyncScheduler.enqueueNow(getApplication())
+    }
+    fun syncPersonalData() = viewModelScope.launch { syncPersonalDataInternal() }
     fun toggleWeightUnit() = viewModelScope.launch {
         app.settings.updateWeightUnit(settings.value.weightUnit.other())
     }
     fun toggleWeightVisibility() = viewModelScope.launch {
         app.settings.updateHideAbsoluteWeight(!settings.value.hideAbsoluteWeight)
     }
-    fun deleteWeight(record: WeightRecord) = viewModelScope.launch { app.repository.deleteWeight(record) }
-    fun deleteMeal(record: MealRecord) = viewModelScope.launch { app.repository.deleteMeal(record) }
-    fun deleteMeals(records: List<MealRecord>) = viewModelScope.launch { app.repository.deleteMeals(records) }
-    suspend fun saveMeal(record: MealRecord, foodItems: List<MealFoodItem>) = app.repository.saveMeal(record, foodItems)
+    fun deleteWeight(record: WeightRecord) = viewModelScope.launch {
+        app.repository.deleteWeight(record)
+        PersonalSyncScheduler.enqueueNow(getApplication())
+    }
+    fun deleteMeal(record: MealRecord) = viewModelScope.launch {
+        app.repository.deleteMeal(record)
+        PersonalSyncScheduler.enqueueNow(getApplication())
+    }
+    fun deleteMeals(records: List<MealRecord>) = viewModelScope.launch {
+        app.repository.deleteMeals(records)
+        PersonalSyncScheduler.enqueueNow(getApplication())
+    }
+    suspend fun saveMeal(record: MealRecord, foodItems: List<MealFoodItem>) {
+        app.repository.saveMeal(record, foodItems)
+        PersonalSyncScheduler.enqueueNow(getApplication())
+    }
+
+    private suspend fun syncPersonalDataInternal() {
+        val current = app.settings.values.first()
+        if (current.personalSyncUrl.isBlank() || current.personalSyncToken.isBlank()) {
+            personalSyncState.value = PersonalSyncState.Disabled
+            return
+        }
+        personalSyncState.value = PersonalSyncState.Syncing
+        personalSyncState.value = runCatching {
+            PersonalSyncState.Success(app.personalSync.sync(current.personalSyncUrl, current.personalSyncToken))
+        }.getOrElse { PersonalSyncState.Error(it.message ?: "个人数据同步失败") }
+    }
 }
 
 sealed interface FitdaysImportState {
@@ -122,4 +162,12 @@ sealed interface HealthSyncState {
         val backgroundEnabled: Boolean,
     ) : HealthSyncState
     data class Error(val message: String, val permissionGranted: Boolean) : HealthSyncState
+}
+
+sealed interface PersonalSyncState {
+    data object Checking : PersonalSyncState
+    data object Disabled : PersonalSyncState
+    data object Syncing : PersonalSyncState
+    data class Success(val result: PersonalSyncResult) : PersonalSyncState
+    data class Error(val message: String) : PersonalSyncState
 }

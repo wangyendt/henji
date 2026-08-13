@@ -10,13 +10,18 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WeightRecord::class,
         MealRecord::class,
         MealFoodItem::class,
+        SyncOutboxEvent::class,
+        SyncTombstone::class,
+        SyncMetadata::class,
+        DeferredSyncEvent::class,
     ],
-    version = 4,
+    version = 6,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun weightDao(): WeightDao
     abstract fun mealDao(): MealDao
+    abstract fun syncDao(): SyncDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -89,6 +94,78 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP TABLE IF EXISTS `daily_wellness`")
                 db.execSQL("DROP TABLE IF EXISTS `daily_briefings`")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `sync_outbox` (
+                        `eventId` TEXT NOT NULL,
+                        `entityType` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `operation` TEXT NOT NULL,
+                        `schemaVersion` INTEGER NOT NULL,
+                        `occurredAt` INTEGER NOT NULL,
+                        `payloadJson` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `attempts` INTEGER NOT NULL,
+                        `lastAttemptAt` INTEGER,
+                        PRIMARY KEY(`eventId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_outbox_entityType_entityId` ON `sync_outbox` (`entityType`, `entityId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_outbox_createdAt` ON `sync_outbox` (`createdAt`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `sync_tombstones` (
+                        `entityType` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `deletedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`entityType`, `entityId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `sync_metadata` (
+                        `id` INTEGER NOT NULL,
+                        `deviceId` TEXT NOT NULL,
+                        `pullCursor` INTEGER NOT NULL,
+                        `initialized` INTEGER NOT NULL,
+                        `lastSyncedAt` INTEGER,
+                        `lastError` TEXT,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `sync_deferred_events` (
+                        `cursor` INTEGER NOT NULL,
+                        `eventId` TEXT NOT NULL,
+                        `entityType` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `operation` TEXT NOT NULL,
+                        `schemaVersion` INTEGER NOT NULL,
+                        `occurredAt` INTEGER NOT NULL,
+                        `payloadJson` TEXT NOT NULL,
+                        PRIMARY KEY(`cursor`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sync_outbox` ADD COLUMN `dedupeKey` TEXT")
+                db.execSQL("ALTER TABLE `sync_tombstones` ADD COLUMN `dedupeKey` TEXT")
+                db.execSQL("ALTER TABLE `sync_deferred_events` ADD COLUMN `dedupeKey` TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_tombstones_entityType_dedupeKey` ON `sync_tombstones` (`entityType`, `dedupeKey`)")
             }
         }
     }

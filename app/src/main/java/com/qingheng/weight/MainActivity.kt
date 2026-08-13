@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         viewModel.refreshHealthConnect()
+        viewModel.syncPersonalData()
     }
 
     override fun onNewIntent(intent: Intent) {

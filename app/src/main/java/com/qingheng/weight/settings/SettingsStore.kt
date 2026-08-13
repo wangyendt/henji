@@ -16,6 +16,8 @@ data class AppSettings(
     val profile: UserProfile = UserProfile(),
     val serviceUrl: String = "http://10.0.2.2:7777",
     val serviceToken: String = "",
+    val personalSyncUrl: String = "http://100.84.108.13:8787",
+    val personalSyncToken: String = "",
     val weightUnit: WeightUnit = WeightUnit.KILOGRAM,
     val hideAbsoluteWeight: Boolean = false,
 )
@@ -29,6 +31,8 @@ class SettingsStore(private val context: Context) {
         val goalWeight = doublePreferencesKey("goal_weight")
         val serviceUrl = stringPreferencesKey("service_url")
         val serviceToken = stringPreferencesKey("service_token")
+        val personalSyncUrl = stringPreferencesKey("personal_sync_url")
+        val personalSyncToken = stringPreferencesKey("personal_sync_token")
         val weightUnit = stringPreferencesKey("weight_unit")
         val hideAbsoluteWeight = booleanPreferencesKey("hide_absolute_weight")
     }
@@ -44,6 +48,8 @@ class SettingsStore(private val context: Context) {
             ),
             serviceUrl = p[Keys.serviceUrl] ?: "http://10.0.2.2:7777",
             serviceToken = p[Keys.serviceToken] ?: "",
+            personalSyncUrl = p[Keys.personalSyncUrl] ?: "http://100.84.108.13:8787",
+            personalSyncToken = p[Keys.personalSyncToken] ?: "",
             weightUnit = runCatching {
                 WeightUnit.valueOf(p[Keys.weightUnit] ?: WeightUnit.KILOGRAM.name)
             }.getOrDefault(WeightUnit.KILOGRAM),
@@ -59,6 +65,11 @@ class SettingsStore(private val context: Context) {
 
     suspend fun updateService(url: String, token: String) = context.dataStore.edit {
         it[Keys.serviceUrl] = url.trimEnd('/'); it[Keys.serviceToken] = token
+    }
+
+    suspend fun updatePersonalSync(url: String, token: String) = context.dataStore.edit {
+        it[Keys.personalSyncUrl] = url.trimEnd('/')
+        it[Keys.personalSyncToken] = token
     }
 
     suspend fun updateWeightUnit(unit: WeightUnit) = context.dataStore.edit {

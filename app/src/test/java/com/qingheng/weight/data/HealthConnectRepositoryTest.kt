@@ -98,15 +98,26 @@ private class FakeWeightDao : WeightDao {
     override suspend fun insert(records: List<WeightRecord>) = records.forEach { insert(it) }
     override suspend fun existingIds(ids: List<String>): List<String> = records.map(WeightRecord::id).filter { it in ids }
     override suspend fun delete(record: WeightRecord) { records.removeAll { it.id == record.id } }
+    override suspend fun allForSync(): List<WeightRecord> = records.toList()
+    override suspend fun deleteById(id: String) { records.removeAll { it.id == id } }
+    override suspend fun deleteByDedupeIdentity(epochMinute: Long, centiKg: Long) {
+        records.removeAll {
+            it.measuredAt / 60_000L == epochMinute && kotlin.math.round(it.weightKg * 100.0).toLong() == centiKg
+        }
+    }
 }
 
 private class FakeMealDao : MealDao {
     override fun observeAll(): Flow<List<MealRecord>> = MutableStateFlow(emptyList())
     override fun observeAllFoodItems(): Flow<List<MealFoodItem>> = MutableStateFlow(emptyList())
     override fun observeFoodFrequencies(): Flow<List<FoodMealFrequency>> = MutableStateFlow(emptyList())
+    override suspend fun allForSync(): List<MealRecord> = emptyList()
+    override suspend fun findById(id: String): MealRecord? = null
+    override suspend fun foodItemsForMeal(mealId: String): List<MealFoodItem> = emptyList()
     override suspend fun insert(record: MealRecord) = Unit
     override suspend fun insertFoodItems(items: List<MealFoodItem>) = Unit
     override suspend fun deleteFoodItems(mealId: String) = Unit
     override suspend fun delete(record: MealRecord) = Unit
     override suspend fun delete(records: List<MealRecord>) = Unit
+    override suspend fun deleteById(id: String) = Unit
 }

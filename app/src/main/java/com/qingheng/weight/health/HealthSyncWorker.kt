@@ -17,7 +17,11 @@ class HealthSyncWorker(appContext: Context, params: WorkerParameters) : Coroutin
             ?: return Result.retry()
         if (!permission.coreGranted || !permission.backgroundGranted) return Result.success()
         return runCatching {
-            app.healthConnectSync.sync(app.settings.values.first().profile)
+            val settings = app.settings.values.first()
+            app.healthConnectSync.sync(settings.profile)
+            if (settings.personalSyncUrl.isNotBlank() && settings.personalSyncToken.isNotBlank()) {
+                app.personalSync.sync(settings.personalSyncUrl, settings.personalSyncToken)
+            }
             Result.success()
         }.getOrElse { Result.retry() }
     }

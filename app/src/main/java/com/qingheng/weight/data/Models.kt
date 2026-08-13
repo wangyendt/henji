@@ -71,6 +71,59 @@ data class MealFoodItem(
     val confidence: Double,
 )
 
+@Entity(
+    tableName = "sync_outbox",
+    indices = [Index(value = ["entityType", "entityId"], unique = true), Index("createdAt")],
+)
+data class SyncOutboxEvent(
+    @PrimaryKey val eventId: String,
+    val entityType: String,
+    val entityId: String,
+    val dedupeKey: String? = null,
+    val operation: String,
+    val schemaVersion: Int = 1,
+    val occurredAt: Long,
+    val payloadJson: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val attempts: Int = 0,
+    val lastAttemptAt: Long? = null,
+)
+
+@Entity(
+    tableName = "sync_tombstones",
+    primaryKeys = ["entityType", "entityId"],
+    indices = [Index(value = ["entityType", "dedupeKey"])],
+)
+data class SyncTombstone(
+    val entityType: String,
+    val entityId: String,
+    val dedupeKey: String? = null,
+    val deletedAt: Long,
+)
+
+@Entity(tableName = "sync_metadata")
+data class SyncMetadata(
+    @PrimaryKey val id: Int = 1,
+    val deviceId: String,
+    val pullCursor: Long = 0,
+    val initialized: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val lastError: String? = null,
+)
+
+@Entity(tableName = "sync_deferred_events")
+data class DeferredSyncEvent(
+    @PrimaryKey val cursor: Long,
+    val eventId: String,
+    val entityType: String,
+    val entityId: String,
+    val dedupeKey: String? = null,
+    val operation: String,
+    val schemaVersion: Int,
+    val occurredAt: Long,
+    val payloadJson: String,
+)
+
 data class FoodMealFrequency(
     val canonicalName: String,
     val category: String,

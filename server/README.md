@@ -1,0 +1,26 @@
+# 衡迹个人数据同步服务
+
+服务端只接收体重、身体成分和饮食结构化数据，不上传饮食照片。采用追加事件日志和当前对象墓碑，保证请求重试幂等，并阻止离线旧设备复活已经删除的记录。
+
+## 接口
+
+- `GET /healthz`
+- `POST /v1/sync/push`
+- `GET /v1/sync/pull?after=CURSOR&limit=200`
+
+除健康检查外均要求 `Authorization: Bearer TOKEN`。
+
+## 部署
+
+1. 生成两个不同的随机密钥，分别写入 `secrets/db_password` 和 `secrets/api_token`，权限设为 `0600`。
+2. 以 PostgreSQL 管理员执行：
+
+   ```bash
+   psql --set=health_sync_password="$(cat secrets/db_password)" \
+     -f sql/000_health_sync_role.sql personal_knowledge
+   psql -f sql/001_health_sync.sql personal_knowledge
+   psql -f sql/002_weight_dedupe_key.sql personal_knowledge
+   psql -f sql/003_normalize_weight_dedupe_key.sql personal_knowledge
+   ```
+
+3. `docker compose up -d --build`。
