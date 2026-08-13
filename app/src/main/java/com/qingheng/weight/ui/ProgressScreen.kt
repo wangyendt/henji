@@ -521,53 +521,53 @@ private fun DayMealSummary(summary: DailyMealSummary?, onOpenMeal: (MealRecord) 
                 Modifier.padding(top = 8.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            return@Column
-        }
-        Spacer(Modifier.height(10.dp))
-        Surface(
-            color = Color(0xFFFFF5DE),
-            shape = RoundedCornerShape(18.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("当日总摄入", style = MaterialTheme.typography.labelMedium, color = Color(0xFF72510D))
-                    Text(
-                        "${calorieRange(summary.calorieLow, summary.calorieHigh)} kcal",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black,
-                        color = Color(0xFF9A5E00),
-                    )
-                }
-                Surface(color = Color(0xFFE5A11A), contentColor = Color.White, shape = CircleShape) {
-                    Text(
-                        summary.meals.size.toString(),
-                        Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
-                        fontWeight = FontWeight.Black,
-                    )
-                }
-            }
-        }
-        if (summary.foodNames.isNotEmpty()) {
-            FlowRow(
-                Modifier.padding(top = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
+        } else {
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                color = Color(0xFFFFF5DE),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                summary.foodNames.forEach { name ->
-                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(11.dp)) {
+                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("当日总摄入", style = MaterialTheme.typography.labelMedium, color = Color(0xFF72510D))
                         Text(
-                            name,
-                            Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                            style = MaterialTheme.typography.labelMedium,
+                            "${calorieRange(summary.calorieLow, summary.calorieHigh)} kcal",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF9A5E00),
+                        )
+                    }
+                    Surface(color = Color(0xFFE5A11A), contentColor = Color.White, shape = CircleShape) {
+                        Text(
+                            summary.meals.size.toString(),
+                            Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                            fontWeight = FontWeight.Black,
                         )
                     }
                 }
             }
-        }
-        Spacer(Modifier.height(8.dp))
-        summary.meals.forEach { entry ->
-            DayMealRow(entry.meal, onOpenMeal)
+            if (summary.foodNames.isNotEmpty()) {
+                FlowRow(
+                    Modifier.padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    summary.foodNames.forEach { name ->
+                        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(11.dp)) {
+                            Text(
+                                name,
+                                Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            summary.meals.forEach { entry ->
+                DayMealRow(entry.meal, onOpenMeal)
+            }
         }
     }
 }
