@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -121,6 +122,7 @@ private fun TrendCard(
     hideAbsoluteWeight: Boolean,
     earliestWeightKg: Double?,
 ) {
+    val metricHidden = hideAbsoluteWeight && metric.hideInPrivacyMode
     val first = points.firstOrNull()
     val latest = points.lastOrNull()
     val change = if (first != null && latest != null && first != latest) latest.value - first.value else null
@@ -141,7 +143,14 @@ private fun TrendCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (latest != null) {
+                if (metricHidden) {
+                    Text(
+                        "已隐藏",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else if (latest != null) {
                     Text(
                         metric.format(latest.value, unit, hideAbsoluteWeight, earliestWeightKg),
                         style = MaterialTheme.typography.headlineSmall,
@@ -151,30 +160,44 @@ private fun TrendCard(
                 }
             }
             Spacer(Modifier.height(16.dp))
-            MetricTrendChart(points, Modifier.fillMaxWidth().height(170.dp))
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth()) {
+            if (metricHidden) {
+                Box(Modifier.fillMaxWidth().height(170.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Outlined.VisibilityOff, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "隐私模式下已隐藏${metric.title}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                MetricTrendChart(points, Modifier.fillMaxWidth().height(170.dp))
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text(
+                        points.firstOrNull()?.date?.format(shortDateFormatter) ?: "--",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        points.lastOrNull()?.date?.format(shortDateFormatter) ?: "--",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text(
-                    points.firstOrNull()?.date?.format(shortDateFormatter) ?: "--",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    points.lastOrNull()?.date?.format(shortDateFormatter) ?: "--",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    when {
+                        points.isEmpty() -> "这段时间还没有${metric.title}数据"
+                        change == null -> "1 个有数据的日期"
+                        else -> "${points.size} 个有数据的日期 · 净变化 ${change.signed(metric, unit)}"
+                    },
+                    Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Text(
-                when {
-                    points.isEmpty() -> "这段时间还没有${metric.title}数据"
-                    change == null -> "1 个有数据的日期"
-                    else -> "${points.size} 个有数据的日期 · 净变化 ${change.signed(metric, unit)}"
-                },
-                Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
     }
 }
@@ -450,7 +473,7 @@ private fun MeasurementRow(
                 Text(
                     buildList {
                         add(record.measuredAt.asDate("HH:mm"))
-                        record.bodyFatPercent?.let { add("体脂 ${it.one()}%") }
+                        if (!hideAbsoluteWeight) record.bodyFatPercent?.let { add("体脂 ${it.one()}%") }
                         add(record.deviceName ?: "手动记录")
                     }.joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
@@ -475,6 +498,7 @@ private fun RecordMetricDetails(
     earliestWeightKg: Double?,
 ) {
     val metrics = TrendMetric.values().mapNotNull { metric ->
+        if (hideAbsoluteWeight && metric.hideInPrivacyMode) return@mapNotNull null
         metric.valueOf(record)?.let {
             metric.title to metric.format(it, unit, hideAbsoluteWeight, earliestWeightKg)
         }

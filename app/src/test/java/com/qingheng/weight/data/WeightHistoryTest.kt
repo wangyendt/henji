@@ -100,6 +100,14 @@ class WeightHistoryTest {
         assertEquals(WeightUnit.JIN, WeightUnit.KILOGRAM.other())
     }
 
+    @Test
+    fun `privacy mode marks BMI and body fat as hidden metrics`() {
+        assertEquals(true, TrendMetric.BMI.hideInPrivacyMode)
+        assertEquals(true, TrendMetric.BODY_FAT.hideInPrivacyMode)
+        assertEquals(false, TrendMetric.BODY_WATER.hideInPrivacyMode)
+        assertEquals(false, TrendMetric.WEIGHT.hideInPrivacyMode)
+    }
+
     private fun record(
         id: String,
         time: String,

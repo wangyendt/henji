@@ -140,8 +140,18 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
         Spacer(Modifier.height(10.dp))
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("BMI", latestBmi?.one() ?: "--", modifier = Modifier.weight(1f))
-                MetricCard("体脂率", latestBodyFat?.one() ?: "--", "%", Amber, Modifier.weight(1f))
+                MetricCard(
+                    "BMI",
+                    if (settings.hideAbsoluteWeight) "已隐藏" else latestBmi?.one() ?: "--",
+                    modifier = Modifier.weight(1f),
+                )
+                MetricCard(
+                    "体脂率",
+                    if (settings.hideAbsoluteWeight) "已隐藏" else latestBodyFat?.one() ?: "--",
+                    if (settings.hideAbsoluteWeight) "" else "%",
+                    Amber,
+                    Modifier.weight(1f),
+                )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MetricCard("体水分", latestBodyWater?.one() ?: "--", "%", Color(0xFF3189C9), Modifier.weight(1f))

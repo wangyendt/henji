@@ -28,6 +28,9 @@ enum class TrendMetric(
 
     val isMass: Boolean
         get() = this == WEIGHT || this == FAT_FREE_MASS || this == MUSCLE_MASS || this == BONE_MASS
+
+    val hideInPrivacyMode: Boolean
+        get() = this == BMI || this == BODY_FAT
 }
 
 data class DailyWeightHistory(
