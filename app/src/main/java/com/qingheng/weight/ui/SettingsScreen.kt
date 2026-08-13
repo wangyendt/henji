@@ -10,16 +10,22 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.qingheng.weight.data.Sex
 import com.qingheng.weight.data.UserProfile
+import com.qingheng.weight.data.absoluteWeightKg
+import com.qingheng.weight.data.earliestWeightKg
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(vm: AppViewModel) {
     val current by vm.settings.collectAsState()
+    val records by vm.weights.collectAsState()
     var height by remember(current.profile.heightCm) { mutableStateOf(current.profile.heightCm.toString()) }
     var year by remember(current.profile.birthYear) { mutableStateOf(current.profile.birthYear.toString()) }
     val unit = current.weightUnit
-    var goal by remember(current.profile.goalWeightKg, unit) {
-        mutableStateOf(unit.valueFromKg(current.profile.goalWeightKg))
+    val earliestKg = remember(records) { earliestWeightKg(records) }
+    var goal by remember(current.profile.goalWeightKg, unit, current.hideAbsoluteWeight, earliestKg) {
+        mutableStateOf(
+            unit.displayedValueFromKg(current.profile.goalWeightKg, current.hideAbsoluteWeight, earliestKg).orEmpty()
+        )
     }
     var sex by remember(current.profile.sex) { mutableStateOf(current.profile.sex) }
     var url by remember(current.serviceUrl) { mutableStateOf(current.serviceUrl) }
@@ -39,9 +45,20 @@ fun SettingsScreen(vm: AppViewModel) {
                     SegmentedButton(selected = sex == value, onClick = { sex = value }, shape = SegmentedButtonDefaults.itemShape(index, 2)) { Text(if (value == Sex.MALE) "男" else "女") }
                 }
             }
-            OutlinedTextField(goal, { goal = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("目标体重 ${unit.symbol}") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(
+                goal,
+                { goal = it.filter { c -> c.isDigit() || c == '.' || c == '-' || c == '+' } },
+                label = { Text(if (current.hideAbsoluteWeight) "目标相对值 ${unit.symbol}" else "目标体重 ${unit.symbol}") },
+                supportingText = if (current.hideAbsoluteWeight) {{ Text("以最早体重为 0") }} else null,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                enabled = !current.hideAbsoluteWeight || earliestKg != null,
+            )
             Button({
-                val goalKg = goal.toDoubleOrNull()?.let(unit::toKilograms) ?: 65.0
+                val displayedGoalKg = goal.toDoubleOrNull()?.let(unit::toKilograms)
+                val goalKg = displayedGoalKg?.let {
+                    absoluteWeightKg(it, current.hideAbsoluteWeight, earliestKg)
+                } ?: current.profile.goalWeightKg
                 vm.updateProfile(UserProfile(height.toIntOrNull()?.coerceIn(100, 230) ?: 170, year.toIntOrNull()?.coerceIn(1920, 2020) ?: 1990, sex, current.profile.activityLevel, goalKg)); saved = true
             }, Modifier.fillMaxWidth()) { Text("保存身体资料") }
         }

@@ -15,11 +15,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qingheng.weight.data.WeightUnit
 import com.qingheng.weight.data.dashboardWeightSummary
+import com.qingheng.weight.data.earliestWeightKg
 import com.qingheng.weight.data.groupWeightRecordsByDay
 import kotlin.math.abs
 
@@ -29,6 +29,7 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
     val meals by vm.meals.collectAsState()
     val settings by vm.settings.collectAsState()
     val unit = settings.weightUnit
+    val earliestKg = remember(records) { earliestWeightKg(records) }
     val dailyHistory = remember(records) { groupWeightRecordsByDay(records) }
     val summary = remember(dailyHistory, settings.profile.goalWeightKg) {
         dashboardWeightSummary(dailyHistory, settings.profile.goalWeightKg)
@@ -54,22 +55,32 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         ) {
             Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "当前体重",
-                        Modifier.weight(1f).padding(start = 74.dp),
-                        textAlign = TextAlign.Center,
+                        if (settings.hideAbsoluteWeight) "相对最早体重" else "当前体重",
+                        Modifier.weight(1f),
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
-                    FilledTonalButton(
-                        onClick = vm::toggleWeightUnit,
-                        contentPadding = PaddingValues(horizontal = 11.dp, vertical = 0.dp),
-                        modifier = Modifier.height(36.dp),
-                    ) { Text("${unit.symbol} ⇄ ${unit.other().symbol}") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FilledTonalButton(
+                            onClick = vm::toggleWeightUnit,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(36.dp),
+                        ) { Text("${unit.symbol} ⇄ ${unit.other().symbol}") }
+                        IconButton(onClick = vm::toggleWeightVisibility, modifier = Modifier.size(40.dp)) {
+                            Icon(
+                                if (settings.hideAbsoluteWeight) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                                if (settings.hideAbsoluteWeight) "显示实际体重" else "隐藏实际体重",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+                    }
                 }
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        summary?.let { unit.valueFromKg(it.currentKg) } ?: "--",
+                        summary?.let {
+                            unit.displayedValueFromKg(it.currentKg, settings.hideAbsoluteWeight, earliestKg)
+                        } ?: "--",
                         fontSize = 54.sp,
                         fontWeight = FontWeight.Bold,
                     )
@@ -96,7 +107,7 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
                 )
                 Row(Modifier.fillMaxWidth()) {
                     Text(
-                        "目标 ${unit.weightFromKg(settings.profile.goalWeightKg)}",
+                        "目标 ${unit.displayedWeightFromKg(settings.profile.goalWeightKg, settings.hideAbsoluteWeight, earliestKg) ?: "--"}",
                         style = MaterialTheme.typography.labelSmall,
                     )
                     Spacer(Modifier.weight(1f))

@@ -10,6 +10,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qingheng.weight.data.WeightUnit
+import com.qingheng.weight.data.displayedWeightKg
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -40,3 +41,18 @@ fun WeightUnit.valueFromKg(valueKg: Double): String = fromKilograms(valueKg).one
 fun WeightUnit.weightFromKg(valueKg: Double): String = "${valueFromKg(valueKg)} $symbol"
 fun WeightUnit.signedWeightFromKg(valueKg: Double): String =
     "${if (valueKg > 0) "+" else ""}${weightFromKg(valueKg)}"
+
+fun WeightUnit.displayedValueFromKg(
+    valueKg: Double,
+    hideAbsoluteWeight: Boolean,
+    earliestWeightKg: Double?,
+): String? = displayedWeightKg(valueKg, hideAbsoluteWeight, earliestWeightKg)?.let { displayed ->
+    val prefix = if (hideAbsoluteWeight && displayed > 0.0) "+" else ""
+    "$prefix${valueFromKg(displayed)}"
+}
+
+fun WeightUnit.displayedWeightFromKg(
+    valueKg: Double,
+    hideAbsoluteWeight: Boolean,
+    earliestWeightKg: Double?,
+): String? = displayedValueFromKg(valueKg, hideAbsoluteWeight, earliestWeightKg)?.let { "$it $symbol" }

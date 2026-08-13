@@ -51,6 +51,7 @@ fun ProgressScreen(vm: AppViewModel) {
     val all by vm.weights.collectAsState()
     val settings by vm.settings.collectAsState()
     val unit = settings.weightUnit
+    val earliestKg = remember(all) { earliestWeightKg(all) }
     val history = remember(all) { groupWeightRecordsByDay(all) }
     var metricName by rememberSaveable { mutableStateOf(TrendMetric.WEIGHT.name) }
     var rangeIndex by rememberSaveable { mutableIntStateOf(1) }
@@ -96,9 +97,9 @@ fun ProgressScreen(vm: AppViewModel) {
                     ) { Text(option.title) }
                 }
             }
-            TrendCard(metric, points, unit)
+            TrendCard(metric, points, unit, settings.hideAbsoluteWeight, earliestKg)
             DailyRuleNote()
-            MeasurementCalendar(history, unit, vm::deleteWeight)
+            MeasurementCalendar(history, unit, settings.hideAbsoluteWeight, earliestKg, vm::deleteWeight)
         }
         if (all.isEmpty()) {
             item {
@@ -113,7 +114,13 @@ fun ProgressScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun TrendCard(metric: TrendMetric, points: List<DailyMetricPoint>, unit: WeightUnit) {
+private fun TrendCard(
+    metric: TrendMetric,
+    points: List<DailyMetricPoint>,
+    unit: WeightUnit,
+    hideAbsoluteWeight: Boolean,
+    earliestWeightKg: Double?,
+) {
     val first = points.firstOrNull()
     val latest = points.lastOrNull()
     val change = if (first != null && latest != null && first != latest) latest.value - first.value else null
@@ -124,7 +131,10 @@ private fun TrendCard(metric: TrendMetric, points: List<DailyMetricPoint>, unit:
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
                 Column(Modifier.weight(1f)) {
-                    Text(metric.title, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (metric == TrendMetric.WEIGHT && hideAbsoluteWeight) "体重（相对最早）" else metric.title,
+                        fontWeight = FontWeight.Bold,
+                    )
                     Text(
                         "每天最后一个有效值",
                         style = MaterialTheme.typography.bodySmall,
@@ -133,7 +143,7 @@ private fun TrendCard(metric: TrendMetric, points: List<DailyMetricPoint>, unit:
                 }
                 if (latest != null) {
                     Text(
-                        metric.format(latest.value, unit),
+                        metric.format(latest.value, unit, hideAbsoluteWeight, earliestWeightKg),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = Emerald,
@@ -229,6 +239,8 @@ private fun DailyRuleNote() {
 private fun MeasurementCalendar(
     history: List<DailyWeightHistory>,
     unit: WeightUnit,
+    hideAbsoluteWeight: Boolean,
+    earliestWeightKg: Double?,
     delete: (WeightRecord) -> Unit,
 ) {
     val latestDate = history.firstOrNull()?.date ?: LocalDate.now()
@@ -290,6 +302,8 @@ private fun MeasurementCalendar(
                 historyByDate = historyByDate,
                 normalizedRange = normalizedRange,
                 unit = unit,
+                hideAbsoluteWeight = hideAbsoluteWeight,
+                earliestWeightKg = earliestWeightKg,
                 onSelect = { selectedEpochDay = it.toEpochDay() },
             )
             HorizontalDivider(Modifier.padding(top = 10.dp))
@@ -306,7 +320,7 @@ private fun MeasurementCalendar(
                 )
             } else {
                 selectedHistory.records.forEach { record ->
-                    MeasurementRow(record, unit, delete)
+                    MeasurementRow(record, unit, hideAbsoluteWeight, earliestWeightKg, delete)
                 }
             }
         }
@@ -320,6 +334,8 @@ private fun CalendarMonthGrid(
     historyByDate: Map<LocalDate, DailyWeightHistory>,
     normalizedRange: NormalizedWeightRange?,
     unit: WeightUnit,
+    hideAbsoluteWeight: Boolean,
+    earliestWeightKg: Double?,
     onSelect: (LocalDate) -> Unit,
 ) {
     val weekdayTitles = listOf("一", "二", "三", "四", "五", "六", "日")
@@ -351,6 +367,8 @@ private fun CalendarMonthGrid(
                             weightKg = day?.latest?.weightKg,
                             weightLevel = day?.latest?.weightKg?.let { normalizedRange?.level(it) },
                             unit = unit,
+                            hideAbsoluteWeight = hideAbsoluteWeight,
+                            earliestWeightKg = earliestWeightKg,
                             recordCount = day?.records?.size ?: 0,
                             selected = date == selectedDate,
                             onClick = { onSelect(date) },
@@ -369,6 +387,8 @@ private fun CalendarDay(
     weightKg: Double?,
     weightLevel: Float?,
     unit: WeightUnit,
+    hideAbsoluteWeight: Boolean,
+    earliestWeightKg: Double?,
     recordCount: Int,
     selected: Boolean,
     onClick: () -> Unit,
@@ -394,7 +414,7 @@ private fun CalendarDay(
             val level = weightLevel ?: 0.5f
             Surface(color = heatColor(level), shape = RoundedCornerShape(7.dp)) {
                 Text(
-                    unit.valueFromKg(weightKg),
+                    unit.displayedValueFromKg(weightKg, hideAbsoluteWeight, earliestWeightKg) ?: "--",
                     Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (level >= 0.55f) Color.White else Color(0xFF174B3B),
@@ -409,7 +429,13 @@ private fun CalendarDay(
 }
 
 @Composable
-private fun MeasurementRow(record: WeightRecord, unit: WeightUnit, delete: (WeightRecord) -> Unit) {
+private fun MeasurementRow(
+    record: WeightRecord,
+    unit: WeightUnit,
+    hideAbsoluteWeight: Boolean,
+    earliestWeightKg: Double?,
+    delete: (WeightRecord) -> Unit,
+) {
     var expanded by rememberSaveable(record.id) { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().clickable { expanded = !expanded }
@@ -417,7 +443,10 @@ private fun MeasurementRow(record: WeightRecord, unit: WeightUnit, delete: (Weig
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(unit.weightFromKg(record.weightKg), fontWeight = FontWeight.SemiBold)
+                Text(
+                    unit.displayedWeightFromKg(record.weightKg, hideAbsoluteWeight, earliestWeightKg) ?: "--",
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(
                     buildList {
                         add(record.measuredAt.asDate("HH:mm"))
@@ -432,16 +461,23 @@ private fun MeasurementRow(record: WeightRecord, unit: WeightUnit, delete: (Weig
             IconButton(onClick = { delete(record) }) { Icon(Icons.Outlined.Delete, "删除") }
         }
         if (expanded) {
-            RecordMetricDetails(record, unit)
+            RecordMetricDetails(record, unit, hideAbsoluteWeight, earliestWeightKg)
         }
     }
     HorizontalDivider(Modifier.padding(horizontal = 18.dp))
 }
 
 @Composable
-private fun RecordMetricDetails(record: WeightRecord, unit: WeightUnit) {
+private fun RecordMetricDetails(
+    record: WeightRecord,
+    unit: WeightUnit,
+    hideAbsoluteWeight: Boolean,
+    earliestWeightKg: Double?,
+) {
     val metrics = TrendMetric.values().mapNotNull { metric ->
-        metric.valueOf(record)?.let { metric.title to metric.format(it, unit) }
+        metric.valueOf(record)?.let {
+            metric.title to metric.format(it, unit, hideAbsoluteWeight, earliestWeightKg)
+        }
     }
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
@@ -461,7 +497,15 @@ private fun RecordMetricDetails(record: WeightRecord, unit: WeightUnit) {
     }
 }
 
-private fun TrendMetric.format(value: Double, weightUnit: WeightUnit): String {
+private fun TrendMetric.format(
+    value: Double,
+    weightUnit: WeightUnit,
+    hideAbsoluteWeight: Boolean = false,
+    earliestWeightKg: Double? = null,
+): String {
+    if (this == TrendMetric.WEIGHT) {
+        return weightUnit.displayedWeightFromKg(value, hideAbsoluteWeight, earliestWeightKg) ?: "--"
+    }
     if (isMass) return weightUnit.weightFromKg(value)
     val number = when (this) {
         TrendMetric.BMR, TrendMetric.BODY_AGE -> value.roundToInt().toString()

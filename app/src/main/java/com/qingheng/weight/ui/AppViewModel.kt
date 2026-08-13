@@ -83,6 +83,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleWeightUnit() = viewModelScope.launch {
         app.settings.updateWeightUnit(settings.value.weightUnit.other())
     }
+    fun toggleWeightVisibility() = viewModelScope.launch {
+        app.settings.updateHideAbsoluteWeight(!settings.value.hideAbsoluteWeight)
+    }
     fun deleteWeight(record: WeightRecord) = viewModelScope.launch { app.repository.deleteWeight(record) }
     fun deleteMeal(record: MealRecord) = viewModelScope.launch { app.repository.deleteMeal(record) }
     suspend fun saveMeal(record: MealRecord) = app.repository.saveMeal(record)

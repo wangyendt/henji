@@ -17,6 +17,7 @@ data class AppSettings(
     val serviceUrl: String = "http://10.0.2.2:7777",
     val serviceToken: String = "",
     val weightUnit: WeightUnit = WeightUnit.KILOGRAM,
+    val hideAbsoluteWeight: Boolean = false,
 )
 
 class SettingsStore(private val context: Context) {
@@ -29,6 +30,7 @@ class SettingsStore(private val context: Context) {
         val serviceUrl = stringPreferencesKey("service_url")
         val serviceToken = stringPreferencesKey("service_token")
         val weightUnit = stringPreferencesKey("weight_unit")
+        val hideAbsoluteWeight = booleanPreferencesKey("hide_absolute_weight")
     }
 
     val values: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -45,6 +47,7 @@ class SettingsStore(private val context: Context) {
             weightUnit = runCatching {
                 WeightUnit.valueOf(p[Keys.weightUnit] ?: WeightUnit.KILOGRAM.name)
             }.getOrDefault(WeightUnit.KILOGRAM),
+            hideAbsoluteWeight = p[Keys.hideAbsoluteWeight] ?: false,
         )
     }
 
@@ -60,5 +63,9 @@ class SettingsStore(private val context: Context) {
 
     suspend fun updateWeightUnit(unit: WeightUnit) = context.dataStore.edit {
         it[Keys.weightUnit] = unit.name
+    }
+
+    suspend fun updateHideAbsoluteWeight(hidden: Boolean) = context.dataStore.edit {
+        it[Keys.hideAbsoluteWeight] = hidden
     }
 }
