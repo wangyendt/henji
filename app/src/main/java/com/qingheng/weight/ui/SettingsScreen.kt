@@ -83,7 +83,7 @@ fun SettingsScreen(vm: AppViewModel) {
                 personalUrl,
                 { personalUrl = it },
                 label = { Text("同步服务地址") },
-                placeholder = { Text("http://100.x.x.x:8787") },
+                placeholder = { Text("https://example.com/services/henji-sync") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )

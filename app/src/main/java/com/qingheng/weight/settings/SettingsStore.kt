@@ -12,11 +12,15 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore("settings")
 
+internal const val DEFAULT_PERSONAL_SYNC_URL = "https://wangye.xin/services/henji-sync"
+internal const val LEGACY_PERSONAL_SYNC_URL = "http://100.84.108.13:8787"
+private const val PERSONAL_SYNC_URL_MIGRATION_VERSION = 1
+
 data class AppSettings(
     val profile: UserProfile = UserProfile(),
     val serviceUrl: String = "http://10.0.2.2:7777",
     val serviceToken: String = "",
-    val personalSyncUrl: String = "http://100.84.108.13:8787",
+    val personalSyncUrl: String = DEFAULT_PERSONAL_SYNC_URL,
     val personalSyncToken: String = "",
     val weightUnit: WeightUnit = WeightUnit.KILOGRAM,
     val hideAbsoluteWeight: Boolean = false,
@@ -33,6 +37,7 @@ class SettingsStore(private val context: Context) {
         val serviceToken = stringPreferencesKey("service_token")
         val personalSyncUrl = stringPreferencesKey("personal_sync_url")
         val personalSyncToken = stringPreferencesKey("personal_sync_token")
+        val personalSyncUrlMigrationVersion = intPreferencesKey("personal_sync_url_migration_version")
         val weightUnit = stringPreferencesKey("weight_unit")
         val hideAbsoluteWeight = booleanPreferencesKey("hide_absolute_weight")
     }
@@ -48,7 +53,10 @@ class SettingsStore(private val context: Context) {
             ),
             serviceUrl = p[Keys.serviceUrl] ?: "http://10.0.2.2:7777",
             serviceToken = p[Keys.serviceToken] ?: "",
-            personalSyncUrl = p[Keys.personalSyncUrl] ?: "http://100.84.108.13:8787",
+            personalSyncUrl = resolvePersonalSyncUrl(
+                storedUrl = p[Keys.personalSyncUrl],
+                migrationVersion = p[Keys.personalSyncUrlMigrationVersion] ?: 0,
+            ),
             personalSyncToken = p[Keys.personalSyncToken] ?: "",
             weightUnit = runCatching {
                 WeightUnit.valueOf(p[Keys.weightUnit] ?: WeightUnit.KILOGRAM.name)
@@ -72,11 +80,33 @@ class SettingsStore(private val context: Context) {
         it[Keys.personalSyncToken] = token
     }
 
+    suspend fun migratePersonalSyncUrl() = context.dataStore.edit {
+        if ((it[Keys.personalSyncUrlMigrationVersion] ?: 0) >= PERSONAL_SYNC_URL_MIGRATION_VERSION) {
+            return@edit
+        }
+        val storedUrl = it[Keys.personalSyncUrl]?.trimEnd('/')
+        if (storedUrl.isNullOrBlank() || storedUrl == LEGACY_PERSONAL_SYNC_URL) {
+            it[Keys.personalSyncUrl] = DEFAULT_PERSONAL_SYNC_URL
+        }
+        it[Keys.personalSyncUrlMigrationVersion] = PERSONAL_SYNC_URL_MIGRATION_VERSION
+    }
+
     suspend fun updateWeightUnit(unit: WeightUnit) = context.dataStore.edit {
         it[Keys.weightUnit] = unit.name
     }
 
     suspend fun updateHideAbsoluteWeight(hidden: Boolean) = context.dataStore.edit {
         it[Keys.hideAbsoluteWeight] = hidden
+    }
+}
+
+internal fun resolvePersonalSyncUrl(storedUrl: String?, migrationVersion: Int): String {
+    val normalized = storedUrl?.trimEnd('/')
+    return when {
+        normalized.isNullOrBlank() -> DEFAULT_PERSONAL_SYNC_URL
+        migrationVersion < PERSONAL_SYNC_URL_MIGRATION_VERSION && normalized == LEGACY_PERSONAL_SYNC_URL -> {
+            DEFAULT_PERSONAL_SYNC_URL
+        }
+        else -> normalized
     }
 }

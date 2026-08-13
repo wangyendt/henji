@@ -11,8 +11,13 @@ import com.qingheng.weight.health.HealthSyncScheduler
 import com.qingheng.weight.settings.SettingsStore
 import com.qingheng.weight.sync.PersonalSyncEngine
 import com.qingheng.weight.sync.PersonalSyncScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class HengJiApp : Application() {
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     lateinit var repository: AppRepository
         private set
     lateinit var settings: SettingsStore
@@ -38,6 +43,7 @@ class HengJiApp : Application() {
             .build()
         repository = AppRepository(database.weightDao(), database.mealDao(), database.syncDao(), database)
         settings = SettingsStore(this)
+        applicationScope.launch { settings.migratePersonalSyncUrl() }
         healthConnectSync = HealthConnectSync(this, repository)
         personalSync = PersonalSyncEngine(database)
         HealthSyncScheduler.schedule(this)
