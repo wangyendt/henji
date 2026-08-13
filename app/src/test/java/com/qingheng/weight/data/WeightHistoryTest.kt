@@ -61,12 +61,27 @@ class WeightHistoryTest {
         assertEquals(-10.0, summary.earliestChangeKg, 0.001)
         assertEquals(-6.0, summary.thirtyDayChangeKg, 0.001)
         assertEquals(-2.0, summary.sevenDayChangeKg, 0.001)
-        assertEquals(0.0, summary.requestedPercentage, 0.001)
+        assertEquals(50.0, summary.weightLossProgressPercentage, 0.001)
         assertEquals(10.0, summary.remainingToGoalKg, 0.001)
     }
 
     @Test
-    fun `requested percentage is zero when earliest equals goal`() {
+    fun `weight loss progress is complete at or below goal and zero above initial`() {
+        val reached = dashboardWeightSummary(groupWeightRecordsByDay(listOf(
+            record("oldest", "2026-08-01T08:00", 100.0),
+            record("current", "2026-08-13T08:00", 79.0),
+        ), zone), 80.0)!!
+        val regressed = dashboardWeightSummary(groupWeightRecordsByDay(listOf(
+            record("oldest", "2026-08-01T08:00", 100.0),
+            record("current", "2026-08-13T08:00", 105.0),
+        ), zone), 80.0)!!
+
+        assertEquals(100.0, reached.weightLossProgressPercentage, 0.001)
+        assertEquals(0.0, regressed.weightLossProgressPercentage, 0.001)
+    }
+
+    @Test
+    fun `weight loss progress handles initial weight equal to goal`() {
         val records = listOf(
             record("oldest", "2026-08-01T08:00", 90.0),
             record("current", "2026-08-13T08:00", 95.0),
@@ -74,7 +89,7 @@ class WeightHistoryTest {
 
         val summary = dashboardWeightSummary(groupWeightRecordsByDay(records, zone), 90.0)!!
 
-        assertEquals(0.0, summary.requestedPercentage, 0.001)
+        assertEquals(0.0, summary.weightLossProgressPercentage, 0.001)
         assertEquals(5.0, summary.remainingToGoalKg, 0.001)
     }
 

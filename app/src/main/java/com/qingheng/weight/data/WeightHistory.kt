@@ -92,7 +92,7 @@ data class DashboardWeightSummary(
     val earliestChangeKg: Double,
     val thirtyDayChangeKg: Double,
     val sevenDayChangeKg: Double,
-    val requestedPercentage: Double,
+    val weightLossProgressPercentage: Double,
     val remainingToGoalKg: Double,
 )
 
@@ -112,11 +112,11 @@ fun dashboardWeightSummary(
         return currentKg - baseline
     }
 
-    val denominator = earliestKg - goalWeightKg
-    val requestedPercentage = if (abs(denominator) < 0.000_001) {
-        0.0
+    val totalWeightToLoseKg = earliestKg - goalWeightKg
+    val weightLossProgressPercentage = if (abs(totalWeightToLoseKg) < 0.000_001) {
+        if (currentKg <= goalWeightKg) 100.0 else 0.0
     } else {
-        max(0.0, (currentKg - earliestKg) / denominator) * 100.0
+        ((earliestKg - currentKg) / totalWeightToLoseKg * 100.0).coerceIn(0.0, 100.0)
     }
 
     return DashboardWeightSummary(
@@ -124,7 +124,7 @@ fun dashboardWeightSummary(
         earliestChangeKg = currentKg - earliestKg,
         thirtyDayChangeKg = changeWithin(30),
         sevenDayChangeKg = changeWithin(7),
-        requestedPercentage = requestedPercentage,
+        weightLossProgressPercentage = weightLossProgressPercentage,
         remainingToGoalKg = max(0.0, currentKg - goalWeightKg),
     )
 }

@@ -94,15 +94,15 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
                 }
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("变化比例", style = MaterialTheme.typography.bodySmall)
+                    Text("减重进度", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.weight(1f))
                     Text(
-                        summary?.let { "${it.requestedPercentage.one()}%" } ?: "--",
+                        summary?.let { "${it.weightLossProgressPercentage.one()}%" } ?: "--",
                         fontWeight = FontWeight.Bold,
                     )
                 }
                 LinearProgressIndicator(
-                    progress = { ((summary?.requestedPercentage ?: 0.0) / 100.0).toFloat().coerceIn(0f, 1f) },
+                    progress = { ((summary?.weightLossProgressPercentage ?: 0.0) / 100.0).toFloat() },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp).height(7.dp).clip(CircleShape),
                 )
                 if (settings.hideAbsoluteWeight) {
