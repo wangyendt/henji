@@ -105,17 +105,26 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
                     progress = { ((summary?.requestedPercentage ?: 0.0) / 100.0).toFloat().coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp).height(7.dp).clip(CircleShape),
                 )
-                Row(Modifier.fillMaxWidth()) {
+                if (settings.hideAbsoluteWeight) {
                     Text(
-                        "目标 ${unit.displayedWeightFromKg(settings.profile.goalWeightKg, settings.hideAbsoluteWeight, earliestKg) ?: "--"}",
+                        "目标体重已隐藏",
+                        Modifier.fillMaxWidth(),
                         style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.68f),
                     )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        summary?.let { "还需减 ${unit.weightFromKg(it.remainingToGoalKg)}" } ?: "还没有称重数据",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                } else {
+                    Row(Modifier.fillMaxWidth()) {
+                        Text(
+                            "目标 ${unit.weightFromKg(settings.profile.goalWeightKg)}",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            summary?.let { "还需减 ${unit.weightFromKg(it.remainingToGoalKg)}" } ?: "还没有称重数据",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
         }

@@ -21,14 +21,3 @@ fun displayedWeightKg(
     val difference = valueKg - baseline
     return if (abs(difference) < 0.000_001) 0.0 else difference
 }
-
-/** Converts an edited relative value back to the absolute value stored in the database. */
-fun absoluteWeightKg(
-    displayedKg: Double,
-    hideAbsoluteWeight: Boolean,
-    earliestWeightKg: Double?,
-): Double? = when {
-    !hideAbsoluteWeight -> displayedKg
-    earliestWeightKg != null -> displayedKg + earliestWeightKg
-    else -> null
-}

@@ -21,13 +21,6 @@ class WeightDisplayTest {
         assertNull(displayedWeightKg(72.0, true, null))
     }
 
-    @Test
-    fun `relative goal edits convert back to an absolute stored weight`() {
-        assertEquals(65.0, absoluteWeightKg(65.0, false, 70.5)!!, 0.001)
-        assertEquals(65.0, absoluteWeightKg(-5.5, true, 70.5)!!, 0.001)
-        assertNull(absoluteWeightKg(-5.5, true, null))
-    }
-
     private fun record(id: String, measuredAt: Long, weightKg: Double) = WeightRecord(
         id = id,
         measuredAt = measuredAt,
