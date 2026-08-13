@@ -1,6 +1,8 @@
 package com.qingheng.weight.meal
 
 import android.content.ContentResolver
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -19,6 +21,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 data class CodexTaskPollingOptions(
     val intervalMillis: Long = 1_000,
@@ -39,10 +42,17 @@ data class CodexTaskPollingOptions(
 class CodexTaskClient(
     serviceBaseUrl: String,
     private val serviceToken: String,
-    private val httpClient: OkHttpClient = OkHttpClient(),
+    private val httpClient: OkHttpClient = defaultCodexTaskHttpClient(),
     private val polling: CodexTaskPollingOptions = CodexTaskPollingOptions(),
 ) {
     private val baseUrl: HttpUrl = serviceBaseUrl.trimEnd('/').toHttpUrlOrNull()
+        ?.let { parsed ->
+            parsed.newBuilder()
+                .encodedPath(parsed.encodedPath.trimEnd('/') + "/")
+                .query(null)
+                .fragment(null)
+                .build()
+        }
         ?: throw CodexTaskException.Configuration("CodexTask 服务地址格式无效")
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
@@ -64,7 +74,8 @@ class CodexTaskClient(
             stream.use(::readLimitedImage)
         }
         val mimeType = resolveMimeType(contentResolver.getType(imageUri), bytes)
-        return analyzeImage(bytes, mimeType)
+        val upload = prepareImageForUpload(bytes, mimeType)
+        return analyzeImage(upload.bytes, upload.mimeType)
     }
 
     internal suspend fun analyzeImage(
@@ -176,8 +187,14 @@ class CodexTaskClient(
 
     /** Prevents a malicious/incorrect statusUrl from receiving the Bearer token. */
     private fun resolveSameOrigin(pathOrUrl: String): HttpUrl {
-        val resolved = baseUrl.resolve(pathOrUrl)
-            ?: throw CodexTaskException.Protocol("CodexTask 返回的 statusUrl 无效")
+        val value = pathOrUrl.trim()
+        val servicePrefix = baseUrl.encodedPath.trimEnd('/')
+        val resolved = value.toHttpUrlOrNull() ?: when {
+            servicePrefix.isNotEmpty() && value.startsWith("$servicePrefix/") -> {
+                baseUrl.newBuilder().encodedPath("/").build().resolve(value.trimStart('/'))
+            }
+            else -> baseUrl.resolve(value.trimStart('/'))
+        } ?: throw CodexTaskException.Protocol("CodexTask 返回的 statusUrl 无效")
         if (resolved.scheme != baseUrl.scheme || resolved.host != baseUrl.host || resolved.port != baseUrl.port) {
             throw CodexTaskException.Protocol("CodexTask 返回的 statusUrl 不属于已配置服务")
         }
@@ -215,13 +232,57 @@ class CodexTaskClient(
         }
     }
 
+    private fun prepareImageForUpload(bytes: ByteArray, mimeType: String): UploadImage {
+        if (bytes.size <= COMPRESSION_THRESHOLD_BYTES) return UploadImage(bytes, mimeType)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return UploadImage(bytes, mimeType)
+
+        var sampleSize = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sampleSize > MAX_UPLOAD_DIMENSION * 2) {
+            sampleSize *= 2
+        }
+        val decoded = BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply { inSampleSize = sampleSize },
+        ) ?: return UploadImage(bytes, mimeType)
+        val scale = (MAX_UPLOAD_DIMENSION.toDouble() / maxOf(decoded.width, decoded.height)).coerceAtMost(1.0)
+        val resized = if (scale < 1.0) {
+            Bitmap.createScaledBitmap(
+                decoded,
+                (decoded.width * scale).roundToInt().coerceAtLeast(1),
+                (decoded.height * scale).roundToInt().coerceAtLeast(1),
+                true,
+            )
+        } else decoded
+        return try {
+            val output = ByteArrayOutputStream()
+            if (!resized.compress(Bitmap.CompressFormat.JPEG, JPEG_UPLOAD_QUALITY, output)) {
+                UploadImage(bytes, mimeType)
+            } else {
+                val compressed = output.toByteArray()
+                if (compressed.size < bytes.size) UploadImage(compressed, "image/jpeg")
+                else UploadImage(bytes, mimeType)
+            }
+        } finally {
+            if (resized !== decoded) resized.recycle()
+            decoded.recycle()
+        }
+    }
+
     private fun ByteArray.startsWith(vararg signature: Int): Boolean =
         size >= signature.size && signature.indices.all { this[it].toInt() and 0xFF == signature[it] }
 
     private data class JobReceipt(val jobId: String, val statusUrl: String)
+    private data class UploadImage(val bytes: ByteArray, val mimeType: String)
 
     companion object {
         private const val MAX_IMAGE_BYTES = 20 * 1024 * 1024
+        private const val COMPRESSION_THRESHOLD_BYTES = 1_500_000
+        private const val MAX_UPLOAD_DIMENSION = 1_600
+        private const val JPEG_UPLOAD_QUALITY = 85
         private val MIME_EXTENSIONS = mapOf(
             "image/png" to ".png",
             "image/jpeg" to ".jpg",
@@ -286,6 +347,12 @@ class CodexTaskClient(
 """
     }
 }
+
+internal fun defaultCodexTaskHttpClient(): OkHttpClient = OkHttpClient.Builder()
+    .connectTimeout(30, TimeUnit.SECONDS)
+    .writeTimeout(2, TimeUnit.MINUTES)
+    .readTimeout(1, TimeUnit.MINUTES)
+    .build()
 
 internal sealed interface JobOutcome {
     data object Pending : JobOutcome

@@ -17,6 +17,47 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class CodexTaskClientTest {
     @Test
+    fun `default client allows slow mobile image uploads`() {
+        val client = defaultCodexTaskHttpClient()
+
+        assertEquals(30_000, client.connectTimeoutMillis)
+        assertEquals(120_000, client.writeTimeoutMillis)
+        assertEquals(60_000, client.readTimeoutMillis)
+    }
+
+    @Test
+    fun `keeps reverse proxy prefix for submission and root relative status URL`() = runBlocking {
+        val requests = mutableListOf<okhttp3.Request>()
+        val callNumber = AtomicInteger()
+        val interceptor = Interceptor { chain ->
+            requests += chain.request()
+            val responseJson = if (callNumber.getAndIncrement() == 0) {
+                """{"jobId":"job-1","status":"queued","statusUrl":"/v1/jobs/job-1"}"""
+            } else {
+                """{"jobId":"job-1","kind":"text","status":"failed","result":{"status":"failed","taskId":"task-1","backend":"direct","artifacts":[],"error":{"code":"TEST_DONE","message":"done","retryable":false}}}"""
+            }
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(if (callNumber.get() == 1) 202 else 200)
+                .message("test")
+                .body(responseJson.toResponseBody("application/json".toMediaType()))
+                .build()
+        }
+        val client = CodexTaskClient(
+            serviceBaseUrl = "https://wangye.xin/services/codex-task",
+            serviceToken = UUID.randomUUID().toString(),
+            httpClient = OkHttpClient.Builder().addInterceptor(interceptor).build(),
+            polling = CodexTaskPollingOptions(intervalMillis = 0, timeoutMillis = 2_000),
+        )
+
+        runCatching { client.analyzeImage(byteArrayOf(1, 2, 3), "image/jpeg") }
+
+        assertEquals("/services/codex-task/v1/text", requests[0].url.encodedPath)
+        assertEquals("/services/codex-task/v1/jobs/job-1", requests[1].url.encodedPath)
+    }
+
+    @Test
     fun `posts documented image payload then surfaces failed polled status in Chinese`() = runBlocking {
         val callNumber = AtomicInteger()
         val testCredential = UUID.randomUUID().toString()

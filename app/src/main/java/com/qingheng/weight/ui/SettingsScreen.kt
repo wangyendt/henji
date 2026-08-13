@@ -63,8 +63,8 @@ fun SettingsScreen(vm: AppViewModel) {
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("CodexTask 饮食识别", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium)
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("填写运行 CodexTask 服务的电脑局域网地址和专用令牌。手机与电脑需要连接同一局域网。", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(url, { url = it }, label = { Text("服务地址") }, placeholder = { Text("http://10.0.2.2:7777") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Text("填写 CodexTask 服务的完整 HTTPS 地址或局域网地址，以及专用令牌。反向代理地址可以包含路径前缀。", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(url, { url = it }, label = { Text("服务地址") }, placeholder = { Text("https://example.com/services/codex-task") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             OutlinedTextField(token, { token = it }, label = { Text("Service Token") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
             Button({ vm.updateService(url, token); saved = true }, Modifier.fillMaxWidth()) { Text("保存服务配置") }
         }
