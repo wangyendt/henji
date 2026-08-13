@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
@@ -27,9 +28,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.qingheng.weight.data.*
 import java.time.LocalDate
 import java.time.YearMonth
@@ -46,14 +49,19 @@ private val rangeOptions = listOf(
     RangeOption("全部", null),
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ProgressScreen(vm: AppViewModel) {
     val all by vm.weights.collectAsState()
+    val meals by vm.meals.collectAsState()
+    val mealFoodItems by vm.mealFoodItems.collectAsState()
     val settings by vm.settings.collectAsState()
     val unit = settings.weightUnit
     val earliestKg = remember(all) { earliestWeightKg(all) }
     val history = remember(all) { groupWeightRecordsByDay(all) }
+    val mealHistory = remember(meals, mealFoodItems) { groupMealsByDay(meals, mealFoodItems) }
+    val foodsByMeal = remember(mealFoodItems) { mealFoodItems.groupBy(MealFoodItem::mealId) }
+    var selectedMealId by rememberSaveable { mutableStateOf<String?>(null) }
     var metricName by rememberSaveable { mutableStateOf(TrendMetric.WEIGHT.name) }
     var rangeIndex by rememberSaveable { mutableIntStateOf(1) }
     val metric = TrendMetric.valueOf(metricName)
@@ -100,7 +108,15 @@ fun ProgressScreen(vm: AppViewModel) {
             }
             TrendCard(metric, points, unit, settings.hideAbsoluteWeight, earliestKg)
             DailyRuleNote()
-            MeasurementCalendar(history, unit, settings.hideAbsoluteWeight, earliestKg, vm::deleteWeight)
+            MeasurementCalendar(
+                history = history,
+                mealHistory = mealHistory,
+                unit = unit,
+                hideAbsoluteWeight = settings.hideAbsoluteWeight,
+                earliestWeightKg = earliestKg,
+                delete = vm::deleteWeight,
+                onOpenMeal = { selectedMealId = it.id },
+            )
         }
         if (all.isEmpty()) {
             item {
@@ -111,6 +127,15 @@ fun ProgressScreen(vm: AppViewModel) {
                 )
             }
         }
+    }
+
+    meals.firstOrNull { it.id == selectedMealId }?.let { meal ->
+        MealDetailSheet(
+            meal = meal,
+            foods = foodsByMeal[meal.id].orEmpty(),
+            onDismiss = { selectedMealId = null },
+            onDelete = { vm.deleteMeal(meal) },
+        )
     }
 }
 
@@ -261,12 +286,15 @@ private fun DailyRuleNote() {
 @Composable
 private fun MeasurementCalendar(
     history: List<DailyWeightHistory>,
+    mealHistory: List<DailyMealSummary>,
     unit: WeightUnit,
     hideAbsoluteWeight: Boolean,
     earliestWeightKg: Double?,
     delete: (WeightRecord) -> Unit,
+    onOpenMeal: (MealRecord) -> Unit,
 ) {
-    val latestDate = history.firstOrNull()?.date ?: LocalDate.now()
+    val latestDate = listOfNotNull(history.firstOrNull()?.date, mealHistory.firstOrNull()?.date).maxOrNull()
+        ?: LocalDate.now()
     var monthKey by rememberSaveable { mutableIntStateOf(latestDate.year * 12 + latestDate.monthValue - 1) }
     var selectedEpochDay by rememberSaveable { mutableLongStateOf(latestDate.toEpochDay()) }
     var initialized by rememberSaveable { mutableStateOf(false) }
@@ -280,13 +308,17 @@ private fun MeasurementCalendar(
     val month = YearMonth.of(monthKey / 12, monthKey % 12 + 1)
     val selectedDate = LocalDate.ofEpochDay(selectedEpochDay)
     val historyByDate = remember(history) { history.associateBy(DailyWeightHistory::date) }
+    val mealsByDate = remember(mealHistory) { mealHistory.associateBy(DailyMealSummary::date) }
     val selectedHistory = historyByDate[selectedDate]
+    val selectedMeals = mealsByDate[selectedDate]
     val normalizedRange = remember(history) { normalizedWeightRange(history) }
 
     fun moveMonth(delta: Int) {
         monthKey += delta
         val target = YearMonth.of(monthKey / 12, monthKey % 12 + 1)
-        val firstRecorded = history.firstOrNull { YearMonth.from(it.date) == target }?.date
+        val firstRecorded = (history.map(DailyWeightHistory::date) + mealHistory.map(DailyMealSummary::date))
+            .filter { YearMonth.from(it) == target }
+            .maxOrNull()
         selectedEpochDay = (firstRecorded ?: target.atDay(1)).toEpochDay()
     }
 
@@ -296,12 +328,12 @@ private fun MeasurementCalendar(
     ) {
         Column(Modifier.padding(vertical = 18.dp)) {
             Text(
-                "称重日历",
+                "健康日历",
                 Modifier.padding(horizontal = 18.dp),
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "体重底色按全部历史记录统一换算，颜色越深代表体重越高",
+                "体重颜色越深代表数值越高；日期下方会标出当天餐数",
                 Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -323,6 +355,7 @@ private fun MeasurementCalendar(
                 month = month,
                 selectedDate = selectedDate,
                 historyByDate = historyByDate,
+                mealsByDate = mealsByDate,
                 normalizedRange = normalizedRange,
                 unit = unit,
                 hideAbsoluteWeight = hideAbsoluteWeight,
@@ -331,8 +364,16 @@ private fun MeasurementCalendar(
             )
             HorizontalDivider(Modifier.padding(top = 10.dp))
             Text(
-                "${selectedDate.monthValue}月${selectedDate.dayOfMonth}日 · ${selectedHistory?.records?.size ?: 0} 次",
+                "${selectedDate.monthValue}月${selectedDate.dayOfMonth}日 · " +
+                    "${selectedHistory?.records?.size ?: 0} 次称重 · ${selectedMeals?.meals?.size ?: 0} 餐",
                 Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                fontWeight = FontWeight.Bold,
+            )
+            DayMealSummary(selectedMeals, onOpenMeal)
+            HorizontalDivider()
+            Text(
+                "称重记录",
+                Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
                 fontWeight = FontWeight.Bold,
             )
             if (selectedHistory == null) {
@@ -355,6 +396,7 @@ private fun CalendarMonthGrid(
     month: YearMonth,
     selectedDate: LocalDate,
     historyByDate: Map<LocalDate, DailyWeightHistory>,
+    mealsByDate: Map<LocalDate, DailyMealSummary>,
     normalizedRange: NormalizedWeightRange?,
     unit: WeightUnit,
     hideAbsoluteWeight: Boolean,
@@ -385,6 +427,7 @@ private fun CalendarMonthGrid(
                     } else {
                         val date = month.atDay(dayNumber)
                         val day = historyByDate[date]
+                        val meals = mealsByDate[date]
                         CalendarDay(
                             date = date,
                             weightKg = day?.latest?.weightKg,
@@ -393,6 +436,7 @@ private fun CalendarMonthGrid(
                             hideAbsoluteWeight = hideAbsoluteWeight,
                             earliestWeightKg = earliestWeightKg,
                             recordCount = day?.records?.size ?: 0,
+                            mealCount = meals?.meals?.size ?: 0,
                             selected = date == selectedDate,
                             onClick = { onSelect(date) },
                             modifier = Modifier.weight(1f).aspectRatio(0.88f),
@@ -413,6 +457,7 @@ private fun CalendarDay(
     hideAbsoluteWeight: Boolean,
     earliestWeightKg: Double?,
     recordCount: Int,
+    mealCount: Int,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier,
@@ -420,34 +465,150 @@ private fun CalendarDay(
     val background = when {
         selected -> MaterialTheme.colorScheme.primaryContainer
         weightKg != null -> MaterialTheme.colorScheme.surfaceVariant
+        mealCount > 0 -> Color(0xFFFFF5DE)
         else -> Color.Transparent
     }
-    Column(
-        modifier.clip(RoundedCornerShape(11.dp)).background(background).clickable(onClick = onClick)
-            .padding(vertical = 5.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            "${date.dayOfMonth}${if (recordCount > 1) " ×$recordCount" else ""}",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-        )
-        if (weightKg != null) {
-            val level = weightLevel ?: 0.5f
-            Surface(color = heatColor(level), shape = RoundedCornerShape(7.dp)) {
-                Text(
-                    unit.displayedValueFromKg(weightKg, hideAbsoluteWeight, earliestWeightKg) ?: "--",
-                    Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (level >= 0.55f) Color.White else Color(0xFF174B3B),
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                )
+    Box(modifier.clip(RoundedCornerShape(11.dp)).background(background).clickable(onClick = onClick)) {
+        Column(
+            Modifier.fillMaxSize().padding(vertical = 5.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                "${date.dayOfMonth}${if (recordCount > 1) " ×$recordCount" else ""}",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            )
+            if (weightKg != null) {
+                val level = weightLevel ?: 0.5f
+                Surface(color = heatColor(level), shape = RoundedCornerShape(7.dp)) {
+                    Text(
+                        unit.displayedValueFromKg(weightKg, hideAbsoluteWeight, earliestWeightKg) ?: "--",
+                        Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (level >= 0.55f) Color.White else Color(0xFF174B3B),
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
+            } else {
+                Spacer(Modifier.height(14.dp))
             }
-        } else {
-            Spacer(Modifier.height(14.dp))
         }
+        if (mealCount > 0) {
+            Surface(
+                Modifier.align(Alignment.BottomEnd).padding(2.dp).sizeIn(minWidth = 18.dp, minHeight = 18.dp),
+                color = Color(0xFFE5A11A),
+                contentColor = Color.White,
+                shape = CircleShape,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(mealCount.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun DayMealSummary(summary: DailyMealSummary?, onOpenMeal: (MealRecord) -> Unit) {
+    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Text("饮食汇总", fontWeight = FontWeight.Bold)
+        if (summary == null) {
+            Text(
+                "这一天没有饮食记录",
+                Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@Column
+        }
+        Spacer(Modifier.height(10.dp))
+        Surface(
+            color = Color(0xFFFFF5DE),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("当日总摄入", style = MaterialTheme.typography.labelMedium, color = Color(0xFF72510D))
+                    Text(
+                        "${calorieRange(summary.calorieLow, summary.calorieHigh)} kcal",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
+                        color = Color(0xFF9A5E00),
+                    )
+                }
+                Surface(color = Color(0xFFE5A11A), contentColor = Color.White, shape = CircleShape) {
+                    Text(
+                        summary.meals.size.toString(),
+                        Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+        }
+        if (summary.foodNames.isNotEmpty()) {
+            FlowRow(
+                Modifier.padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                summary.foodNames.forEach { name ->
+                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(11.dp)) {
+                        Text(
+                            name,
+                            Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        summary.meals.forEach { entry ->
+            DayMealRow(entry.meal, onOpenMeal)
+        }
+    }
+}
+
+@Composable
+private fun DayMealRow(meal: MealRecord, onOpenMeal: (MealRecord) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable { onOpenMeal(meal) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (meal.imageUri != null) {
+            AsyncImage(
+                meal.imageUri,
+                meal.foodNames,
+                Modifier.size(50.dp).clip(RoundedCornerShape(12.dp)),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Box(Modifier.size(50.dp).background(Mint, RoundedCornerShape(12.dp)))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "${meal.mealType} · ${meal.createdAt.asDate("HH:mm")}",
+                style = MaterialTheme.typography.labelMedium,
+                color = Emerald,
+            )
+            Text(
+                meal.foodNames,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "${calorieRange(meal.calorieLow, meal.calorieHigh)} kcal",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(Icons.Outlined.ChevronRight, "查看饮食详情", tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

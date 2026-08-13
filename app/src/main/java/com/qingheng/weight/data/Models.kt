@@ -73,6 +73,7 @@ data class MealFoodItem(
 
 data class FoodMealFrequency(
     val canonicalName: String,
+    val category: String,
     val mealCount: Int,
     val estimatedGrams: Double,
 )

@@ -40,9 +40,13 @@ interface MealDao {
     @Query("SELECT * FROM meal_records ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<MealRecord>>
 
+    @Query("SELECT * FROM meal_food_items ORDER BY mealId, id")
+    fun observeAllFoodItems(): Flow<List<MealFoodItem>>
+
     @Query(
         """
         SELECT canonicalName,
+               MIN(category) AS category,
                COUNT(DISTINCT mealId) AS mealCount,
                SUM((estimatedGramsLow + estimatedGramsHigh) / 2.0) AS estimatedGrams
         FROM meal_food_items
@@ -69,4 +73,6 @@ interface MealDao {
     }
 
     @Delete suspend fun delete(record: MealRecord)
+
+    @Delete suspend fun delete(records: List<MealRecord>)
 }
