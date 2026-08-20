@@ -23,6 +23,11 @@
    psql -f sql/003_normalize_weight_dedupe_key.sql personal_knowledge
    psql -f sql/004_daily_wellness_view.sql personal_knowledge
    psql -f sql/005_workout_records.sql personal_knowledge
+   psql -f sql/006_analytics_views.sql personal_knowledge
    ```
 
 3. `docker compose up -d --build`。
+
+## 只读 Skill
+
+`skills/henji-sync` 为 OpenClaw/Codex 提供健康数据的只读查询约定，覆盖体重、饮食、运动、墓碑和同步历史。Skill 不保存同步 Token 或数据库写入密码。

@@ -34,8 +34,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.qingheng.weight.data.*
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -54,6 +56,7 @@ private val rangeOptions = listOf(
 fun ProgressScreen(vm: AppViewModel) {
     val all by vm.weights.collectAsState()
     val meals by vm.meals.collectAsState()
+    val workouts by vm.workoutRecords.collectAsState()
     val mealFoodItems by vm.mealFoodItems.collectAsState()
     val settings by vm.settings.collectAsState()
     val unit = settings.weightUnit
@@ -62,6 +65,9 @@ fun ProgressScreen(vm: AppViewModel) {
         history.minByOrNull { it.date }?.latest?.weightKg
     }
     val mealHistory = remember(meals, mealFoodItems) { groupMealsByDay(meals, mealFoodItems) }
+    val workoutsByDate = remember(workouts) {
+        workouts.groupBy { Instant.ofEpochMilli(it.startAt).atZone(ZoneId.systemDefault()).toLocalDate() }
+    }
     val foodsByMeal = remember(mealFoodItems) { mealFoodItems.groupBy(MealFoodItem::mealId) }
     var selectedMealId by rememberSaveable { mutableStateOf<String?>(null) }
     var metricName by rememberSaveable { mutableStateOf(TrendMetric.WEIGHT.name) }
@@ -113,11 +119,13 @@ fun ProgressScreen(vm: AppViewModel) {
             MeasurementCalendar(
                 history = history,
                 mealHistory = mealHistory,
+                workoutsByDate = workoutsByDate,
                 unit = unit,
                 hideAbsoluteWeight = settings.hideAbsoluteWeight,
                 earliestWeightKg = earliestKg,
                 delete = vm::deleteWeight,
                 onOpenMeal = { selectedMealId = it.id },
+                deleteWorkout = vm::deleteWorkout,
             )
         }
         if (all.isEmpty()) {
@@ -289,19 +297,25 @@ private fun DailyRuleNote() {
 private fun MeasurementCalendar(
     history: List<DailyWeightHistory>,
     mealHistory: List<DailyMealSummary>,
+    workoutsByDate: Map<LocalDate, List<WorkoutRecord>>,
     unit: WeightUnit,
     hideAbsoluteWeight: Boolean,
     earliestWeightKg: Double?,
     delete: (WeightRecord) -> Unit,
     onOpenMeal: (MealRecord) -> Unit,
+    deleteWorkout: (WorkoutRecord) -> Unit,
 ) {
-    val latestDate = listOfNotNull(history.firstOrNull()?.date, mealHistory.firstOrNull()?.date).maxOrNull()
+    val latestDate = listOfNotNull(
+        history.firstOrNull()?.date,
+        mealHistory.firstOrNull()?.date,
+        workoutsByDate.keys.maxOrNull(),
+    ).maxOrNull()
         ?: LocalDate.now()
     var monthKey by rememberSaveable { mutableIntStateOf(latestDate.year * 12 + latestDate.monthValue - 1) }
     var selectedEpochDay by rememberSaveable { mutableLongStateOf(latestDate.toEpochDay()) }
     var initialized by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(latestDate) {
-        if (!initialized && history.isNotEmpty()) {
+        if (!initialized && (history.isNotEmpty() || mealHistory.isNotEmpty() || workoutsByDate.isNotEmpty())) {
             monthKey = latestDate.year * 12 + latestDate.monthValue - 1
             selectedEpochDay = latestDate.toEpochDay()
             initialized = true
@@ -313,12 +327,13 @@ private fun MeasurementCalendar(
     val mealsByDate = remember(mealHistory) { mealHistory.associateBy(DailyMealSummary::date) }
     val selectedHistory = historyByDate[selectedDate]
     val selectedMeals = mealsByDate[selectedDate]
+    val selectedWorkouts = workoutsByDate[selectedDate].orEmpty()
     val normalizedRange = remember(history) { normalizedWeightRange(history) }
 
     fun moveMonth(delta: Int) {
         monthKey += delta
         val target = YearMonth.of(monthKey / 12, monthKey % 12 + 1)
-        val firstRecorded = (history.map(DailyWeightHistory::date) + mealHistory.map(DailyMealSummary::date))
+        val firstRecorded = (history.map(DailyWeightHistory::date) + mealHistory.map(DailyMealSummary::date) + workoutsByDate.keys)
             .filter { YearMonth.from(it) == target }
             .maxOrNull()
         selectedEpochDay = (firstRecorded ?: target.atDay(1)).toEpochDay()
@@ -358,6 +373,7 @@ private fun MeasurementCalendar(
                 selectedDate = selectedDate,
                 historyByDate = historyByDate,
                 mealsByDate = mealsByDate,
+                workoutsByDate = workoutsByDate,
                 normalizedRange = normalizedRange,
                 unit = unit,
                 hideAbsoluteWeight = hideAbsoluteWeight,
@@ -366,12 +382,14 @@ private fun MeasurementCalendar(
             )
             HorizontalDivider(Modifier.padding(top = 10.dp))
             Text(
-                "${selectedDate.monthValue}月${selectedDate.dayOfMonth}日 · " +
-                    "${selectedHistory?.records?.size ?: 0} 次称重 · ${selectedMeals?.meals?.size ?: 0} 餐",
+                    "${selectedDate.monthValue}月${selectedDate.dayOfMonth}日 · " +
+                    "${selectedHistory?.records?.size ?: 0} 次称重 · ${selectedMeals?.meals?.size ?: 0} 餐 · ${selectedWorkouts.size} 次运动",
                 Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
                 fontWeight = FontWeight.Bold,
             )
             DayMealSummary(selectedMeals, onOpenMeal)
+            HorizontalDivider()
+            DayWorkoutSummary(selectedWorkouts, deleteWorkout)
             HorizontalDivider()
             Text(
                 "称重记录",
@@ -399,6 +417,7 @@ private fun CalendarMonthGrid(
     selectedDate: LocalDate,
     historyByDate: Map<LocalDate, DailyWeightHistory>,
     mealsByDate: Map<LocalDate, DailyMealSummary>,
+    workoutsByDate: Map<LocalDate, List<WorkoutRecord>>,
     normalizedRange: NormalizedWeightRange?,
     unit: WeightUnit,
     hideAbsoluteWeight: Boolean,
@@ -430,6 +449,7 @@ private fun CalendarMonthGrid(
                         val date = month.atDay(dayNumber)
                         val day = historyByDate[date]
                         val meals = mealsByDate[date]
+                        val workouts = workoutsByDate[date].orEmpty()
                         CalendarDay(
                             date = date,
                             weightKg = day?.latest?.weightKg,
@@ -439,6 +459,7 @@ private fun CalendarMonthGrid(
                             earliestWeightKg = earliestWeightKg,
                             recordCount = day?.records?.size ?: 0,
                             mealCount = meals?.meals?.size ?: 0,
+                            workoutCount = workouts.size,
                             selected = date == selectedDate,
                             onClick = { onSelect(date) },
                             modifier = Modifier.weight(1f).aspectRatio(0.88f),
@@ -460,6 +481,7 @@ private fun CalendarDay(
     earliestWeightKg: Double?,
     recordCount: Int,
     mealCount: Int,
+    workoutCount: Int,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier,
@@ -467,7 +489,7 @@ private fun CalendarDay(
     val background = when {
         selected -> MaterialTheme.colorScheme.primaryContainer
         weightKg != null -> MaterialTheme.colorScheme.surfaceVariant
-        mealCount > 0 -> Color(0xFFFFF5DE)
+        mealCount > 0 || workoutCount > 0 -> Color(0xFFFFF5DE)
         else -> Color.Transparent
     }
     Box(modifier.clip(RoundedCornerShape(11.dp)).background(background).clickable(onClick = onClick)) {
@@ -508,6 +530,89 @@ private fun CalendarDay(
                     Text(mealCount.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
                 }
             }
+        }
+        if (workoutCount > 0) {
+            Surface(
+                Modifier.align(Alignment.BottomStart).padding(2.dp).sizeIn(minWidth = 18.dp, minHeight = 18.dp),
+                color = Color(0xFF3978B7),
+                contentColor = Color.White,
+                shape = CircleShape,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(workoutCount.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DayWorkoutSummary(workouts: List<WorkoutRecord>, delete: (WorkoutRecord) -> Unit) {
+    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Text("运动记录", fontWeight = FontWeight.Bold)
+        if (workouts.isEmpty()) {
+            Text(
+                "这一天没有运动记录",
+                Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            workouts.sortedBy(WorkoutRecord::startAt).forEach { workout ->
+                WorkoutSummaryRow(workout, delete)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkoutSummaryRow(workout: WorkoutRecord, delete: (WorkoutRecord) -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(top = 10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF3FB)),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(workout.workoutType, fontWeight = FontWeight.Bold, color = Color(0xFF245A88))
+                Text(
+                    buildList {
+                        add(workout.startAt.asDate("HH:mm"))
+                        workout.durationSeconds?.let { add("${it / 60} 分钟") }
+                        workout.distanceMeters?.let { add(if (it >= 1000) "${"%.1f".format(it / 1000)} km" else "${it.roundToInt()} m") }
+                        workout.caloriesKcal?.let { add("${it.roundToInt()} kcal") }
+                    }.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (workout.workoutCategory == "swimming") {
+                    Text(
+                        listOfNotNull(
+                            workout.lengths?.let { "$it 趟" },
+                            workout.strokes?.let { "$it 次划水" },
+                            workout.averageSwolf?.let { "SWOLF ${it.roundToInt()}" },
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF3978B7),
+                    )
+                } else {
+                    val details = listOfNotNull(
+                        workout.averagePaceSecondsPerKm?.let {
+                            val total = it.roundToInt(); "配速 ${total / 60}'${(total % 60).toString().padStart(2, '0')}\"/km"
+                        },
+                        workout.averageHeartRateBpm?.let { "心率 ${it.roundToInt()}" },
+                        workout.averageCadencePerMinute?.let { "步频 ${it.roundToInt()}" },
+                        workout.steps?.let { "$it 步" },
+                    )
+                    if (details.isNotEmpty()) {
+                        Text(
+                            details.joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF3978B7),
+                        )
+                    }
+                }
+            }
+            IconButton(onClick = { delete(workout) }) { Icon(Icons.Outlined.Delete, "删除运动") }
         }
     }
 }

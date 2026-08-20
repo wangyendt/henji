@@ -21,6 +21,7 @@ import com.qingheng.weight.data.TrendMetric
 import com.qingheng.weight.data.WeightUnit
 import com.qingheng.weight.data.dailyMetricPoints
 import com.qingheng.weight.data.dashboardWeightSummary
+import com.qingheng.weight.data.energyBalanceSummary
 import com.qingheng.weight.data.groupWeightRecordsByDay
 import kotlin.math.abs
 
@@ -28,6 +29,7 @@ import kotlin.math.abs
 fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) {
     val records by vm.weights.collectAsState()
     val meals by vm.meals.collectAsState()
+    val workouts by vm.workoutRecords.collectAsState()
     val settings by vm.settings.collectAsState()
     val unit = settings.weightUnit
     val dailyHistory = remember(records) { groupWeightRecordsByDay(records) }
@@ -51,6 +53,9 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
         }.timeInMillis
     }
     val todayCalories = meals.filter { it.createdAt >= todayStart }.sumOf { (it.calorieLow + it.calorieHigh) / 2 }
+    val energy = remember(records, meals, workouts, settings.profile) {
+        energyBalanceSummary(records, meals, workouts, settings.profile)
+    }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ScreenHeader("衡迹", "今天也在更了解自己的路上")
@@ -142,6 +147,7 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
                 Icon(Icons.Outlined.AddAPhoto, null); Spacer(Modifier.width(7.dp)); Text("记录饮食")
             }
         }
+        EnergyBalanceCard(energy, unit)
         Text("身体数据", Modifier.padding(horizontal = 20.dp), fontWeight = FontWeight.Bold, fontSize = 18.sp)
         Spacer(Modifier.height(10.dp))
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -184,6 +190,145 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun EnergyBalanceCard(summary: com.qingheng.weight.data.EnergyBalanceSummary, unit: WeightUnit) {
+    val today = summary.today
+    val week = summary.week
+    Card(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 20.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF7F1)),
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(42.dp).background(Emerald.copy(alpha = 0.13f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) { Text("⚡", fontSize = 21.sp) }
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("今日能量账", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(
+                        "按基础代谢 × 1.2，加上已记录运动估算",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                EnergyMiniStat("饮食摄入", calorieRangeText(today.intakeLowKcal, today.intakeHighKcal), Modifier.weight(1f))
+                EnergyMiniStat("日常消耗", today.livingKcal?.let { "$it kcal" } ?: "--", Modifier.weight(1f))
+                EnergyMiniStat("运动消耗", "${today.workoutKcal} kcal", Modifier.weight(1f))
+            }
+            if (today.mealCount == 0) {
+                Text(
+                    "今天还没有饮食记录，暂不把未记录饮食当作 0 kcal。已识别 ${today.workoutCount} 次运动。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                BalanceResultRow(
+                    title = "截至当前热量差",
+                    lowCalories = today.balanceLowKcal,
+                    highCalories = today.balanceHighKcal,
+                    weight = weightRange(today.weightChangeLowKg, today.weightChangeHighKg, unit),
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("本周估算", fontWeight = FontWeight.Bold)
+                    Text(
+                        "有饮食记录 ${week.recordedMealDays}/${week.elapsedDays} 天 · 运动 ${week.workoutKcal} kcal",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (week.recordedMealDays > 0) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            signedCalorieRange(week.balanceLowKcal, week.balanceHighKcal),
+                            fontWeight = FontWeight.Bold,
+                            color = balanceColor(week.balanceLowKcal, week.balanceHighKcal),
+                        )
+                        Text(
+                            "折算 ${weightRange(week.weightChangeLowKg, week.weightChangeHighKg, unit)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    Text("待记录饮食", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            week.measuredWeightChangeKg?.let {
+                Text(
+                    "本周秤重实际变化 ${unit.signedWeightFromKg(it)}；能量折算与短期秤重会因水分、糖原等不同。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } ?: Text(
+                "本周至少需要两个有代表性的称重日，才能对照实际体重变化。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "只计算已经录入的餐食；漏记早餐、零食或饮料会让热量缺口看起来偏大。",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color(0xFF72510D),
+            )
+        }
+    }
+}
+
+@Composable
+private fun EnergyMiniStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(modifier, color = Color.White.copy(alpha = 0.76f), shape = RoundedCornerShape(14.dp)) {
+        Column(Modifier.padding(horizontal = 9.dp, vertical = 10.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun BalanceResultRow(title: String, lowCalories: Int?, highCalories: Int?, weight: String) {
+    val calories = signedCalorieRange(lowCalories, highCalories)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.labelMedium)
+            Text("折算体重约 $weight", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text(calories, fontWeight = FontWeight.Black, color = balanceColor(lowCalories, highCalories))
+    }
+}
+
+private fun calorieRangeText(low: Int, high: Int): String =
+    if (low == high) "$low kcal" else "$low–$high kcal"
+
+private fun signedCalorieRange(low: Int?, high: Int?): String {
+    if (low == null || high == null) return "--"
+    fun Int.signed() = if (this > 0) "+$this" else toString()
+    return if (low == high) "${low.signed()} kcal" else "${low.signed()}~${high.signed()} kcal"
+}
+
+private fun weightRange(lowKg: Double?, highKg: Double?, unit: WeightUnit): String {
+    if (lowKg == null || highKg == null) return "--"
+    val low = unit.signedWeightFromKg(lowKg)
+    val high = unit.signedWeightFromKg(highKg)
+    return if (low == high) low else "$low~$high"
+}
+
+@Composable
+private fun balanceColor(low: Int?, high: Int?): Color {
+    val middle = if (low == null || high == null) 0.0 else (low + high) / 2.0
+    return when {
+        middle < -1 -> Emerald
+        middle > 1 -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
 

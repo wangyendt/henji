@@ -1,0 +1,23 @@
+{
+  "skill_name": "henji-sync",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "衡迹里最近 30 次体重是多少，整体趋势如何？",
+      "expected_output": "Queries live weight_record objects read-only, converts measuredAt correctly, reports units/range and avoids medical diagnosis.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "本周记录了哪些饮食和运动，热量收支如何？",
+      "expected_output": "Queries live meal_record and workout_record data, reports meal-day coverage, does not treat missing meals as zero intake, and distinguishes estimates from measured weight change.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "为什么删除的数据没有被旧手机恢复？",
+      "expected_output": "Explains and inspects append-only events and permanent tombstones without writing to the database.",
+      "files": []
+    }
+  ]
+}
