@@ -165,7 +165,7 @@ private fun TrendCard(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "每天 14:00 前最后一个有效值",
+                        "首次不限时间，其余每天 14:00 前最后一个有效值",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -277,7 +277,7 @@ private fun DailyRuleNote() {
         Column(Modifier.padding(14.dp)) {
             Text("同一天称多次时", fontWeight = FontWeight.SemiBold)
             Text(
-                "体重取当天 14:00 前最后一次；体脂等其他指标取 14:00 前最后一个非空结果。14:00 及之后的称重不在首页、趋势和日历中显示。",
+                "全量历史中的首次称重不限时间；之后体重取每天 14:00 前最后一次，其他指标取 14:00 前最后一个非空结果。后续 14:00 及之后的称重不显示。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
@@ -335,7 +335,7 @@ private fun MeasurementCalendar(
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "显示每天 14:00 前最后一次体重；日期下方会标出当天餐数",
+                "首次称重不限时间；之后显示每天 14:00 前最后一次体重",
                 Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

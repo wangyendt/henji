@@ -23,11 +23,26 @@ class WeightHistoryTest {
     }
 
     @Test
-    fun `day with only measurements at or after two pm is not displayed`() {
+    fun `first measurement is displayed even when it is after two pm`() {
+        val first = record("first", "2026-08-10T21:00", 72.0)
+        val later = record("later", "2026-08-11T08:00", 71.0)
+
+        val days = groupWeightRecordsByDay(listOf(later, first), zone)
+
+        assertEquals(2, days.size)
+        assertEquals("first", days.last().latest.id)
+    }
+
+    @Test
+    fun `later day with only measurements at or after two pm is not displayed`() {
+        val first = record("first", "2026-08-09T21:00", 72.0)
         val cutoff = record("cutoff", "2026-08-10T14:00", 70.4)
         val evening = record("evening", "2026-08-10T21:00", 70.8)
 
-        assertEquals(emptyList<DailyWeightHistory>(), groupWeightRecordsByDay(listOf(cutoff, evening), zone))
+        val days = groupWeightRecordsByDay(listOf(first, cutoff, evening), zone)
+
+        assertEquals(1, days.size)
+        assertEquals("first", days.single().latest.id)
     }
 
     @Test

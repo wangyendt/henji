@@ -51,19 +51,23 @@ data class DailyMetricPoint(
 fun groupWeightRecordsByDay(
     records: List<WeightRecord>,
     zoneId: ZoneId = ZoneId.systemDefault(),
-): List<DailyWeightHistory> = records
-    .filter { it.measuredAt.isBeforeDailyDisplayCutoff(zoneId) }
-    .groupBy { it.measuredAt.toLocalDate(zoneId) }
-    .map { (date, values) ->
-        DailyWeightHistory(date, values.sortedByDescending(WeightRecord::measuredAt))
-    }
-    .sortedByDescending(DailyWeightHistory::date)
+): List<DailyWeightHistory> {
+    val firstMeasurementId = records.minByOrNull(WeightRecord::measuredAt)?.id
+    return records
+        .filter { it.id == firstMeasurementId || it.measuredAt.isBeforeDailyDisplayCutoff(zoneId) }
+        .groupBy { it.measuredAt.toLocalDate(zoneId) }
+        .map { (date, values) ->
+            DailyWeightHistory(date, values.sortedByDescending(WeightRecord::measuredAt))
+        }
+        .sortedByDescending(DailyWeightHistory::date)
+}
 
 /**
- * Produces one point per day from measurements before 14:00. Weight uses the
+ * Produces one point per day. The first measurement in the complete history is
+ * always eligible; later measurements must be before 14:00. Weight uses the
  * last eligible measurement. For body-composition fields, the last non-null
- * eligible value is used so that a later weight-only measurement does not
- * erase an earlier complete measurement.
+ * eligible value is used so that a later weight-only measurement does not erase
+ * an earlier complete measurement.
  */
 fun dailyMetricPoints(
     records: List<WeightRecord>,
