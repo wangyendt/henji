@@ -206,14 +206,7 @@ private fun HealthScreenshotImportDialog(vm: AppViewModel) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     current.records.forEach { record ->
-                        val parts = buildList {
-                            record.sleepMinutes?.let { add("睡眠 ${it / 60}小时${it % 60}分") }
-                            record.steps?.let { add("${it} 步") }
-                            record.exerciseMinutes?.let { add("运动 ${it} 分钟") }
-                            record.activeCaloriesKcal?.let { add("活动 ${it.toInt()} kcal") }
-                            if (isEmpty()) add(record.screenType)
-                        }
-                        Text("${LocalDate.ofEpochDay(record.dateEpochDay)}  ${parts.joinToString(" · ")}")
+                        Text("${LocalDate.ofEpochDay(record.dateEpochDay)}  ${record.summaryText()}")
                     }
                     Text(
                         when {

@@ -46,14 +46,8 @@ fun ImportScreen(
                         Text("选择健康截图")
                     }
                     wellnessRecords.take(3).forEach { record ->
-                        val parts = buildList {
-                            record.sleepMinutes?.let { add("睡眠 ${it / 60}小时${it % 60}分") }
-                            record.steps?.let { add("$it 步") }
-                            record.exerciseMinutes?.let { add("运动 $it 分钟") }
-                            if (isEmpty()) add(record.screenType)
-                        }
                         Text(
-                            "${java.time.LocalDate.ofEpochDay(record.dateEpochDay)}  ${parts.joinToString(" · ")}",
+                            "${java.time.LocalDate.ofEpochDay(record.dateEpochDay)}  ${record.summaryText()}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
