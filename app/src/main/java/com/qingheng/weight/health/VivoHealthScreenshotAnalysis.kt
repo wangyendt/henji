@@ -1,6 +1,6 @@
 package com.qingheng.weight.health
 
-import com.qingheng.weight.data.DailyWellnessRecord
+import com.qingheng.weight.data.WorkoutRecord
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -8,109 +8,135 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import kotlin.math.roundToInt
 
-data class HealthScreenshotObservation(
-    val date: LocalDate,
-    val sleepStartAt: Long?,
-    val sleepEndAt: Long?,
-    val sleepMinutes: Int?,
-    val deepSleepMinutes: Int?,
-    val lightSleepMinutes: Int?,
-    val remSleepMinutes: Int?,
-    val awakeMinutes: Int?,
-    val sleepScore: Double?,
-    val steps: Long?,
-    val distanceKm: Double?,
-    val activeCaloriesKcal: Double?,
-    val exerciseMinutes: Int?,
-    val exerciseCaloriesKcal: Double?,
-    val restingHeartRateBpm: Double?,
+data class HealthScreenshotWorkout(
+    val workoutType: String,
+    val workoutCategory: String,
+    val startAt: Long,
+    val durationSeconds: Int?,
+    val distanceMeters: Double?,
+    val caloriesKcal: Double?,
     val averageHeartRateBpm: Double?,
-    val workoutsJson: String,
+    val maximumHeartRateBpm: Double?,
+    val averagePaceSecondsPerKm: Double?,
+    val averagePaceSecondsPer100Meters: Double?,
+    val averageCadencePerMinute: Double?,
+    val steps: Long?,
+    val averageStrideCentimeters: Double?,
+    val elevationGainMeters: Double?,
+    val poolLengthMeters: Double?,
+    val lengths: Int?,
+    val strokes: Int?,
+    val averageSwolf: Double?,
+    val averageStrokeRatePerMinute: Double?,
+    val mainStroke: String?,
     val confidence: Double,
 )
 
 data class HealthScreenshotAnalysis(
     val sourceApp: String,
-    val screenType: String,
-    val observations: List<HealthScreenshotObservation>,
+    val workouts: List<HealthScreenshotWorkout>,
     val warnings: List<String>,
     val rawJson: String,
 ) {
-    fun toRecords(updatedAt: Long = System.currentTimeMillis()): List<DailyWellnessRecord> =
-        observations.map { observation ->
-            DailyWellnessRecord(
-                id = "vivo-health-${observation.date.toEpochDay()}",
-                dateEpochDay = observation.date.toEpochDay(),
+    fun toRecords(updatedAt: Long = System.currentTimeMillis()): List<WorkoutRecord> =
+        workouts.map { workout ->
+            WorkoutRecord(
+                id = workoutRecordId(workout.startAt, workout.workoutType),
                 updatedAt = updatedAt,
-                source = "vivo_health_screenshot",
-                screenType = screenType,
-                sleepStartAt = observation.sleepStartAt,
-                sleepEndAt = observation.sleepEndAt,
-                sleepMinutes = observation.sleepMinutes,
-                deepSleepMinutes = observation.deepSleepMinutes,
-                lightSleepMinutes = observation.lightSleepMinutes,
-                remSleepMinutes = observation.remSleepMinutes,
-                awakeMinutes = observation.awakeMinutes,
-                sleepScore = observation.sleepScore,
-                steps = observation.steps,
-                distanceMeters = observation.distanceKm?.times(1_000.0),
-                activeCaloriesKcal = observation.activeCaloriesKcal,
-                exerciseMinutes = observation.exerciseMinutes,
-                exerciseCaloriesKcal = observation.exerciseCaloriesKcal,
-                restingHeartRateBpm = observation.restingHeartRateBpm,
-                averageHeartRateBpm = observation.averageHeartRateBpm,
-                workoutsJson = observation.workoutsJson,
-                confidence = observation.confidence,
+                source = SOURCE,
+                workoutType = workout.workoutType,
+                workoutCategory = workout.workoutCategory,
+                startAt = workout.startAt,
+                durationSeconds = workout.durationSeconds,
+                distanceMeters = workout.distanceMeters,
+                caloriesKcal = workout.caloriesKcal,
+                averageHeartRateBpm = workout.averageHeartRateBpm,
+                maximumHeartRateBpm = workout.maximumHeartRateBpm,
+                averagePaceSecondsPerKm = workout.averagePaceSecondsPerKm,
+                averagePaceSecondsPer100Meters = workout.averagePaceSecondsPer100Meters,
+                averageCadencePerMinute = workout.averageCadencePerMinute,
+                steps = workout.steps,
+                averageStrideCentimeters = workout.averageStrideCentimeters,
+                elevationGainMeters = workout.elevationGainMeters,
+                poolLengthMeters = workout.poolLengthMeters,
+                lengths = workout.lengths,
+                strokes = workout.strokes,
+                averageSwolf = workout.averageSwolf,
+                averageStrokeRatePerMinute = workout.averageStrokeRatePerMinute,
+                mainStroke = workout.mainStroke,
+                confidence = workout.confidence,
                 rawAnalysis = rawJson,
             )
         }
+
+    companion object {
+        const val SOURCE = "vivo_health_share"
+    }
+}
+
+fun workoutRecordId(startAt: Long, workoutType: String): String {
+    val normalizedType = workoutType.trim().replace(Regex("[\\s/]+"), "-").take(80)
+    return "vivo-workout-$startAt-$normalizedType"
 }
 
 object HealthScreenshotParser {
+    private val supportedCategories = setOf("walking", "running", "swimming")
+
     fun parse(modelOutput: String): HealthScreenshotAnalysis {
         val json = try {
             JSONObject(extractJsonObject(modelOutput))
         } catch (error: JSONException) {
             throw IllegalArgumentException("模型返回的内容不是有效 JSON", error)
         }
-        val array = json.optJSONArray("observations")
-            ?: throw IllegalArgumentException("结果缺少 observations")
-        val observations = buildList {
+        if (json.optString("screenType") != "运动详情") {
+            throw IllegalArgumentException("请选择 vivo 健康中的单次运动详情分享图；睡眠和每日活动不支持导入")
+        }
+        val array = json.optJSONArray("workouts")
+            ?: throw IllegalArgumentException("结果缺少 workouts")
+        val workouts = buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index)
-                    ?: throw IllegalArgumentException("observations[$index] 必须是对象")
-                val date = runCatching { LocalDate.parse(item.getString("date")) }
-                    .getOrElse { throw IllegalArgumentException("observations[$index].date 不是 YYYY-MM-DD") }
-                val workouts = item.optJSONArray("workouts") ?: JSONArray()
-                val observation = HealthScreenshotObservation(
-                    date = date,
-                    sleepStartAt = item.optionalTimestamp("sleepStart"),
-                    sleepEndAt = item.optionalTimestamp("sleepEnd"),
-                    sleepMinutes = item.optionalInt("sleepMinutes", 0, 2_000),
-                    deepSleepMinutes = item.optionalInt("deepSleepMinutes", 0, 2_000),
-                    lightSleepMinutes = item.optionalInt("lightSleepMinutes", 0, 2_000),
-                    remSleepMinutes = item.optionalInt("remSleepMinutes", 0, 2_000),
-                    awakeMinutes = item.optionalInt("awakeMinutes", 0, 2_000),
-                    sleepScore = item.optionalDouble("sleepScore", 0.0, 100.0),
-                    steps = item.optionalLong("steps", 0, 500_000),
-                    distanceKm = item.optionalDouble("distanceKm", 0.0, 1_000.0),
-                    activeCaloriesKcal = item.optionalDouble("activeCaloriesKcal", 0.0, 20_000.0),
-                    exerciseMinutes = item.optionalInt("exerciseMinutes", 0, 2_000),
-                    exerciseCaloriesKcal = item.optionalDouble("exerciseCaloriesKcal", 0.0, 20_000.0),
-                    restingHeartRateBpm = item.optionalDouble("restingHeartRateBpm", 20.0, 250.0),
-                    averageHeartRateBpm = item.optionalDouble("averageHeartRateBpm", 20.0, 250.0),
-                    workoutsJson = workouts.toString(),
-                    confidence = item.optionalDouble("confidence", 0.0, 1.0)
-                        ?: throw IllegalArgumentException("observations[$index] 缺少 confidence"),
-                )
-                if (!observation.hasMetrics()) {
-                    throw IllegalArgumentException("observations[$index] 没有可保存的健康指标")
+                    ?: throw IllegalArgumentException("workouts[$index] 必须是对象")
+                val type = item.optString("type").trim()
+                if (type.isEmpty()) throw IllegalArgumentException("workouts[$index] 缺少运动类型")
+                val category = item.optString("category").trim()
+                if (category !in supportedCategories) {
+                    throw IllegalArgumentException("暂不支持运动类型：$type")
                 }
-                add(observation)
+                val workout = HealthScreenshotWorkout(
+                    workoutType = type,
+                    workoutCategory = category,
+                    startAt = item.requiredTimestamp("startAt"),
+                    durationSeconds = item.optionalDouble("durationMinutes", 0.0, 20_000.0)
+                        ?.times(60.0)?.roundToInt(),
+                    distanceMeters = item.optionalDouble("distanceMeters", 0.0, 2_000_000.0),
+                    caloriesKcal = item.optionalDouble("caloriesKcal", 0.0, 50_000.0),
+                    averageHeartRateBpm = item.optionalDouble("averageHeartRateBpm", 20.0, 250.0),
+                    maximumHeartRateBpm = item.optionalDouble("maximumHeartRateBpm", 20.0, 300.0),
+                    averagePaceSecondsPerKm = item.optionalDouble("averagePaceSecondsPerKm", 0.0, 20_000.0),
+                    averagePaceSecondsPer100Meters = item.optionalDouble("averagePaceSecondsPer100Meters", 0.0, 10_000.0),
+                    averageCadencePerMinute = item.optionalDouble("averageCadencePerMinute", 0.0, 400.0),
+                    steps = item.optionalLong("steps", 0, 1_000_000),
+                    averageStrideCentimeters = item.optionalDouble("averageStrideCentimeters", 0.0, 500.0),
+                    elevationGainMeters = item.optionalDouble("elevationGainMeters", -1_000.0, 20_000.0),
+                    poolLengthMeters = item.optionalDouble("poolLengthMeters", 0.0, 200.0),
+                    lengths = item.optionalInt("lengths", 0, 100_000),
+                    strokes = item.optionalInt("strokes", 0, 1_000_000),
+                    averageSwolf = item.optionalDouble("averageSwolf", 0.0, 1_000.0),
+                    averageStrokeRatePerMinute = item.optionalDouble("averageStrokeRatePerMinute", 0.0, 500.0),
+                    mainStroke = item.optionalString("mainStroke"),
+                    confidence = item.optionalDouble("confidence", 0.0, 1.0)
+                        ?: throw IllegalArgumentException("workouts[$index] 缺少 confidence"),
+                )
+                if (workout.durationSeconds == null && workout.distanceMeters == null && workout.caloriesKcal == null) {
+                    throw IllegalArgumentException("workouts[$index] 没有可保存的运动指标")
+                }
+                add(workout)
             }
         }
-        if (observations.isEmpty()) throw IllegalArgumentException("截图中没有识别到可保存的健康数据")
+        if (workouts.isEmpty()) throw IllegalArgumentException("截图中没有识别到单次运动记录")
         val warnings = buildList {
             val warningArray = json.optJSONArray("warnings") ?: JSONArray()
             for (index in 0 until warningArray.length()) {
@@ -119,28 +145,23 @@ object HealthScreenshotParser {
         }
         return HealthScreenshotAnalysis(
             sourceApp = json.optString("sourceApp", "vivo健康"),
-            screenType = json.optString("screenType", "未知"),
-            observations = observations.distinctBy(HealthScreenshotObservation::date),
+            workouts = workouts.distinctBy { it.startAt to it.workoutType },
             warnings = warnings,
             rawJson = json.toString(),
         )
     }
 
-    private fun HealthScreenshotObservation.hasMetrics(): Boolean =
-        sleepMinutes != null || sleepStartAt != null || sleepEndAt != null || sleepScore != null ||
-            steps != null || distanceKm != null || activeCaloriesKcal != null || exerciseMinutes != null ||
-            exerciseCaloriesKcal != null || restingHeartRateBpm != null || averageHeartRateBpm != null ||
-            workoutsJson != "[]"
-
-    private fun JSONObject.optionalTimestamp(name: String): Long? {
-        if (!has(name) || isNull(name)) return null
-        val value = getString(name).trim()
+    private fun JSONObject.requiredTimestamp(name: String): Long {
+        val value = optionalString(name) ?: throw IllegalArgumentException("$name 不能为空")
         return runCatching { OffsetDateTime.parse(value).toInstant().toEpochMilli() }
             .recoverCatching {
                 LocalDateTime.parse(value).atZone(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli()
             }
             .getOrElse { throw IllegalArgumentException("$name 不是完整 ISO-8601 时间") }
     }
+
+    private fun JSONObject.optionalString(name: String): String? =
+        if (!has(name) || isNull(name)) null else getString(name).trim().takeIf(String::isNotEmpty)
 
     private fun JSONObject.optionalInt(name: String, min: Int, max: Int): Int? =
         optionalLong(name, min.toLong(), max.toLong())?.toInt()
@@ -171,21 +192,19 @@ object HealthScreenshotParser {
 
 object VivoHealthScreenshotPrompt {
     fun prompt(today: LocalDate): String = """
-你是 vivo 健康截图的结构化数据录入器。当前日期是 $today，时区是 Asia/Shanghai（UTC+08:00）。
+你是 vivo 健康“单次运动详情分享图”的结构化录入器。当前日期是 $today，时区是 Asia/Shanghai（UTC+08:00）。
 
-请识别截图中肉眼明确显示的睡眠、日活动和运动数据，返回严格符合 JSON Schema 的结果。
+只接受单次运动详情分享图，支持户外/室内跑步、户外步行/健走和泳池/开放水域游泳。睡眠页、每日活动页、运动列表、周/月统计和健康首页都不是支持的输入；遇到这些页面时将 screenType 设为“未知”且 workouts 返回空数组。
 
 规则：
-1. 只提取截图明确展示的实际数据；目标值、建议值、图表刻度和未标数值的曲线不得当作实际记录。
-2. “今天/今日”按 $today 解析，“昨天”按当前日期减一天解析。睡眠记录的 date 使用醒来所在的日期。
-3. 如果明显是当天首页且没有单独显示日期，可以使用 $today；其他无法确定日期的内容不要录入。
-4. sleepStart 和 sleepEnd 必须是带 +08:00 的完整 ISO-8601 时间。跨午夜时正确设置前一天和当天日期。
-5. 时长统一为分钟；距离统一为公里；热量统一为 kcal；心率统一为 bpm。
-6. 不要根据总睡眠反推出睡眠阶段，不要根据步数估算距离或热量；看不到的可空字段填 null。
-7. workouts 保留每一条肉眼可见的运动；type 使用简短中文名称，startAt 使用完整 ISO-8601 时间。
-8. confidence 表示该日期数据整体识别把握，范围 0 到 1。模糊或遮挡时降低置信度并在 warnings 说明。
-9. 一张周/月截图可以返回多个 observations，但每个日期只出现一次。
-10. 只输出 JSON，不要 Markdown、代码围栏或额外说明。
+1. 只提取图片肉眼明确显示的实际值；地图比例、目标、图表刻度、区间边界和未标数值的曲线不得当作记录。
+2. “今天/今日”按 $today 解析，“昨天”按当前日期减一天解析。startAt 必须是带 +08:00 的完整 ISO-8601 时间。
+3. category 只能是 walking、running、swimming，并与中文 type 对应。
+4. 时长输出分钟；距离统一换算成米；热量为 kcal；心率为 bpm；跑步/步行配速为秒/公里；游泳配速为秒/100米。
+5. 跑步或步行可提取步数、步频、步幅、累计爬升；游泳可提取泳池长度、趟数、划水次数、SWOLF、划频和主要泳姿。
+6. 看不到的字段填 null，不允许由距离和时间反推配速，也不允许由其他指标估算热量或心率。
+7. confidence 是单条运动识别把握，范围 0 到 1；模糊或遮挡时降低置信度并写入 warnings。
+8. 只输出 JSON，不要 Markdown、代码围栏或额外说明。
 """.trimIndent()
 
     const val SCHEMA = """
@@ -193,55 +212,41 @@ object VivoHealthScreenshotPrompt {
   "type": "object",
   "properties": {
     "sourceApp": {"type": "string", "enum": ["vivo健康"]},
-    "screenType": {"type": "string", "enum": ["睡眠", "日活动", "运动详情", "综合", "未知"]},
-    "observations": {
+    "screenType": {"type": "string", "enum": ["运动详情", "未知"]},
+    "workouts": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "object",
         "properties": {
-          "date": {"type": "string"},
-          "sleepStart": {"type": ["string", "null"]},
-          "sleepEnd": {"type": ["string", "null"]},
-          "sleepMinutes": {"type": ["integer", "null"], "minimum": 0},
-          "deepSleepMinutes": {"type": ["integer", "null"], "minimum": 0},
-          "lightSleepMinutes": {"type": ["integer", "null"], "minimum": 0},
-          "remSleepMinutes": {"type": ["integer", "null"], "minimum": 0},
-          "awakeMinutes": {"type": ["integer", "null"], "minimum": 0},
-          "sleepScore": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
-          "steps": {"type": ["integer", "null"], "minimum": 0},
-          "distanceKm": {"type": ["number", "null"], "minimum": 0},
-          "activeCaloriesKcal": {"type": ["number", "null"], "minimum": 0},
-          "exerciseMinutes": {"type": ["integer", "null"], "minimum": 0},
-          "exerciseCaloriesKcal": {"type": ["number", "null"], "minimum": 0},
-          "restingHeartRateBpm": {"type": ["number", "null"], "minimum": 0},
+          "type": {"type": "string"},
+          "category": {"type": "string", "enum": ["walking", "running", "swimming"]},
+          "startAt": {"type": "string"},
+          "durationMinutes": {"type": ["number", "null"], "minimum": 0},
+          "distanceMeters": {"type": ["number", "null"], "minimum": 0},
+          "caloriesKcal": {"type": ["number", "null"], "minimum": 0},
           "averageHeartRateBpm": {"type": ["number", "null"], "minimum": 0},
-          "workouts": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "type": {"type": "string"},
-                "startAt": {"type": ["string", "null"]},
-                "durationMinutes": {"type": ["number", "null"], "minimum": 0},
-                "distanceKm": {"type": ["number", "null"], "minimum": 0},
-                "caloriesKcal": {"type": ["number", "null"], "minimum": 0},
-                "averageHeartRateBpm": {"type": ["number", "null"], "minimum": 0},
-                "maximumHeartRateBpm": {"type": ["number", "null"], "minimum": 0}
-              },
-              "required": ["type", "startAt", "durationMinutes", "distanceKm", "caloriesKcal", "averageHeartRateBpm", "maximumHeartRateBpm"],
-              "additionalProperties": false
-            }
-          },
+          "maximumHeartRateBpm": {"type": ["number", "null"], "minimum": 0},
+          "averagePaceSecondsPerKm": {"type": ["number", "null"], "minimum": 0},
+          "averagePaceSecondsPer100Meters": {"type": ["number", "null"], "minimum": 0},
+          "averageCadencePerMinute": {"type": ["number", "null"], "minimum": 0},
+          "steps": {"type": ["integer", "null"], "minimum": 0},
+          "averageStrideCentimeters": {"type": ["number", "null"], "minimum": 0},
+          "elevationGainMeters": {"type": ["number", "null"]},
+          "poolLengthMeters": {"type": ["number", "null"], "minimum": 0},
+          "lengths": {"type": ["integer", "null"], "minimum": 0},
+          "strokes": {"type": ["integer", "null"], "minimum": 0},
+          "averageSwolf": {"type": ["number", "null"], "minimum": 0},
+          "averageStrokeRatePerMinute": {"type": ["number", "null"], "minimum": 0},
+          "mainStroke": {"type": ["string", "null"]},
           "confidence": {"type": "number", "minimum": 0, "maximum": 1}
         },
-        "required": ["date", "sleepStart", "sleepEnd", "sleepMinutes", "deepSleepMinutes", "lightSleepMinutes", "remSleepMinutes", "awakeMinutes", "sleepScore", "steps", "distanceKm", "activeCaloriesKcal", "exerciseMinutes", "exerciseCaloriesKcal", "restingHeartRateBpm", "averageHeartRateBpm", "workouts", "confidence"],
+        "required": ["type", "category", "startAt", "durationMinutes", "distanceMeters", "caloriesKcal", "averageHeartRateBpm", "maximumHeartRateBpm", "averagePaceSecondsPerKm", "averagePaceSecondsPer100Meters", "averageCadencePerMinute", "steps", "averageStrideCentimeters", "elevationGainMeters", "poolLengthMeters", "lengths", "strokes", "averageSwolf", "averageStrokeRatePerMinute", "mainStroke", "confidence"],
         "additionalProperties": false
       }
     },
     "warnings": {"type": "array", "items": {"type": "string"}}
   },
-  "required": ["sourceApp", "screenType", "observations", "warnings"],
+  "required": ["sourceApp", "screenType", "workouts", "warnings"],
   "additionalProperties": false
 }
 """

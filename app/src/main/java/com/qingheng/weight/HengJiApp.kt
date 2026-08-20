@@ -40,6 +40,7 @@ class HengJiApp : Application() {
                 AppDatabase.MIGRATION_4_5,
                 AppDatabase.MIGRATION_5_6,
                 AppDatabase.MIGRATION_6_7,
+                AppDatabase.MIGRATION_7_8,
             )
             .build()
         repository = AppRepository(
@@ -47,7 +48,7 @@ class HengJiApp : Application() {
             meals = database.mealDao(),
             sync = database.syncDao(),
             database = database,
-            wellness = database.wellnessDao(),
+            workouts = database.workoutDao(),
         )
         settings = SettingsStore(this)
         applicationScope.launch { settings.migratePersonalSyncUrl() }

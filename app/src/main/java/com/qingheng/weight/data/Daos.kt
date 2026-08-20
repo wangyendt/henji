@@ -99,24 +99,24 @@ interface MealDao {
 }
 
 @Dao
-interface WellnessDao {
-    @Query("SELECT * FROM daily_wellness_records ORDER BY dateEpochDay DESC")
-    fun observeAll(): Flow<List<DailyWellnessRecord>>
+interface WorkoutDao {
+    @Query("SELECT * FROM workout_records ORDER BY startAt DESC")
+    fun observeAll(): Flow<List<WorkoutRecord>>
 
-    @Query("SELECT * FROM daily_wellness_records ORDER BY dateEpochDay")
-    suspend fun allForSync(): List<DailyWellnessRecord>
+    @Query("SELECT * FROM workout_records ORDER BY startAt")
+    suspend fun allForSync(): List<WorkoutRecord>
 
-    @Query("SELECT * FROM daily_wellness_records WHERE id = :id LIMIT 1")
-    suspend fun findById(id: String): DailyWellnessRecord?
+    @Query("SELECT * FROM workout_records WHERE id = :id LIMIT 1")
+    suspend fun findById(id: String): WorkoutRecord?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(record: DailyWellnessRecord)
+    suspend fun insert(record: WorkoutRecord)
 
-    @Query("DELETE FROM daily_wellness_records WHERE id = :id")
+    @Query("DELETE FROM workout_records WHERE id = :id")
     suspend fun deleteById(id: String)
 
     @Delete
-    suspend fun delete(record: DailyWellnessRecord)
+    suspend fun delete(record: WorkoutRecord)
 }
 
 @Dao

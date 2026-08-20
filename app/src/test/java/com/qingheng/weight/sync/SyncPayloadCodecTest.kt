@@ -3,9 +3,8 @@ package com.qingheng.weight.sync
 import com.qingheng.weight.data.MealFoodItem
 import com.qingheng.weight.data.MealRecord
 import com.qingheng.weight.data.WeightRecord
-import com.qingheng.weight.data.DailyWellnessRecord
+import com.qingheng.weight.data.WorkoutRecord
 import org.json.JSONObject
-import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -70,28 +69,30 @@ class SyncPayloadCodecTest {
     }
 
     @Test
-    fun `wellness round trip keeps screenshot metrics and workout details`() {
-        val original = DailyWellnessRecord(
-            id = "vivo-health-20685",
-            dateEpochDay = 20_685,
+    fun `workout round trip keeps running and swimming fields`() {
+        val original = WorkoutRecord(
+            id = "vivo-workout-1787220572000-泳池游泳",
             updatedAt = 1_787_158_800_000,
-            source = "vivo_health_screenshot",
-            screenType = "综合",
-            sleepStartAt = 1_787_126_400_000,
-            sleepEndAt = 1_787_153_760_000,
-            sleepMinutes = 456,
-            deepSleepMinutes = 92,
-            steps = 6_842,
-            distanceMeters = 4_810.0,
-            activeCaloriesKcal = 328.0,
-            exerciseMinutes = 36,
-            workoutsJson = """[{"type":"户外步行","durationMinutes":31}]""",
+            source = "vivo_health_share",
+            workoutType = "泳池游泳",
+            workoutCategory = "swimming",
+            startAt = 1_787_220_572_000,
+            durationSeconds = 4_471,
+            distanceMeters = 1_500.0,
+            caloriesKcal = 512.0,
+            averageHeartRateBpm = 121.0,
+            maximumHeartRateBpm = 146.0,
+            averagePaceSecondsPer100Meters = 279.0,
+            poolLengthMeters = 50.0,
+            lengths = 30,
+            strokes = 721,
+            averageSwolf = 58.0,
+            averageStrokeRatePerMinute = 24.0,
+            mainStroke = "自由泳",
             confidence = 0.96,
             rawAnalysis = "{\"sourceApp\":\"vivo健康\"}",
         )
 
-        val restored = SyncPayloadCodec.decodeWellness(original.id, SyncPayloadCodec.encode(original))
-        assertEquals(original.copy(workoutsJson = restored.workoutsJson), restored)
-        assertEquals("户外步行", JSONArray(restored.workoutsJson).getJSONObject(0).getString("type"))
+        assertEquals(original, SyncPayloadCodec.decodeWorkout(original.id, SyncPayloadCodec.encode(original)))
     }
 }

@@ -25,7 +25,6 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import com.qingheng.weight.ui.*
-import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<AppViewModel>()
@@ -184,12 +183,12 @@ private fun HealthScreenshotImportDialog(vm: AppViewModel) {
         HealthScreenshotImportState.Idle -> Unit
         HealthScreenshotImportState.Analyzing -> AlertDialog(
             onDismissRequest = {},
-            title = { Text("正在解析 vivo 健康截图") },
+            title = { Text("正在解析 vivo 健康运动图") },
             text = {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(28.dp))
                     Spacer(Modifier.width(14.dp))
-                    Text("正在识别日期、睡眠、步数和运动数据…")
+                    Text("正在识别运动类型、时间、距离、热量和心率…")
                 }
             },
             confirmButton = {},
@@ -202,11 +201,11 @@ private fun HealthScreenshotImportDialog(vm: AppViewModel) {
         )
         is HealthScreenshotImportState.Success -> AlertDialog(
             onDismissRequest = vm::dismissHealthScreenshotImport,
-            title = { Text("健康数据已录入") },
+            title = { Text("运动记录已录入") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     current.records.forEach { record ->
-                        Text("${LocalDate.ofEpochDay(record.dateEpochDay)}  ${record.summaryText()}")
+                        Text("${record.startAt.asDate()}  ${record.summaryText()}")
                     }
                     Text(
                         when {

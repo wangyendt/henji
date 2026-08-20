@@ -11,13 +11,13 @@ class AppRepository(
     private val meals: MealDao,
     private val sync: SyncDao? = null,
     private val database: AppDatabase? = null,
-    private val wellness: WellnessDao? = null,
+    private val workouts: WorkoutDao? = null,
 ) {
     val weightRecords: Flow<List<WeightRecord>> = weights.observeAll()
     val mealRecords: Flow<List<MealRecord>> = meals.observeAll()
     val mealFoodItems: Flow<List<MealFoodItem>> = meals.observeAllFoodItems()
     val foodFrequencies: Flow<List<FoodMealFrequency>> = meals.observeFoodFrequencies()
-    val wellnessRecords: Flow<List<DailyWellnessRecord>> = wellness?.observeAll() ?: kotlinx.coroutines.flow.flowOf(emptyList())
+    val workoutRecords: Flow<List<WorkoutRecord>> = workouts?.observeAll() ?: kotlinx.coroutines.flow.flowOf(emptyList())
 
     private suspend fun saveManualMeasurement(metrics: BodyMetrics) {
         val record = WeightRecord(
@@ -119,13 +119,13 @@ class AppRepository(
         enqueue(record, foodItems)
     }
 
-    suspend fun saveWellnessRecords(records: List<DailyWellnessRecord>): WellnessImportSummary {
-        val dao = requireNotNull(wellness) { "健康截图存储尚未初始化" }
+    suspend fun saveWorkoutRecords(records: List<WorkoutRecord>): WorkoutImportSummary {
+        val dao = requireNotNull(workouts) { "运动记录存储尚未初始化" }
         var added = 0
         var updated = 0
         inTransaction {
             records.forEach { incoming ->
-                if (sync?.tombstone(SyncPayloadCodec.WELLNESS, incoming.id) != null) return@forEach
+                if (sync?.tombstone(SyncPayloadCodec.WORKOUT, incoming.id) != null) return@forEach
                 val existing = dao.findById(incoming.id)
                 val merged = existing?.merge(incoming) ?: incoming
                 if (existing == null) added++ else if (existing != merged) updated++
@@ -135,7 +135,7 @@ class AppRepository(
                 }
             }
         }
-        return WellnessImportSummary(added, updated, records.size - added - updated)
+        return WorkoutImportSummary(added, updated, records.size - added - updated)
     }
 
     suspend fun deleteWeight(record: WeightRecord) = inTransaction {
@@ -153,9 +153,9 @@ class AppRepository(
         records.forEach { tombstoneAndEnqueue(SyncPayloadCodec.MEAL, it.id) }
     }
 
-    suspend fun deleteWellness(record: DailyWellnessRecord) = inTransaction {
-        wellness?.delete(record)
-        tombstoneAndEnqueue(SyncPayloadCodec.WELLNESS, record.id)
+    suspend fun deleteWorkout(record: WorkoutRecord) = inTransaction {
+        workouts?.delete(record)
+        tombstoneAndEnqueue(SyncPayloadCodec.WORKOUT, record.id, SyncIdentity.workout(record))
     }
 
     private suspend fun enqueue(record: WeightRecord) {
@@ -185,12 +185,13 @@ class AppRepository(
         )
     }
 
-    private suspend fun enqueue(record: DailyWellnessRecord) {
+    private suspend fun enqueue(record: WorkoutRecord) {
         sync?.enqueue(
             SyncOutboxEvent(
                 eventId = UUID.randomUUID().toString(),
-                entityType = SyncPayloadCodec.WELLNESS,
+                entityType = SyncPayloadCodec.WORKOUT,
                 entityId = record.id,
+                dedupeKey = SyncIdentity.workout(record),
                 operation = "upsert",
                 occurredAt = System.currentTimeMillis(),
                 payloadJson = SyncPayloadCodec.encode(record),
@@ -219,30 +220,32 @@ class AppRepository(
         database?.withTransaction { block() } ?: block()
 }
 
-private fun DailyWellnessRecord.merge(incoming: DailyWellnessRecord): DailyWellnessRecord = copy(
+private fun WorkoutRecord.merge(incoming: WorkoutRecord): WorkoutRecord = copy(
     updatedAt = maxOf(updatedAt, incoming.updatedAt),
-    screenType = if (screenType == incoming.screenType) screenType else "综合",
-    sleepStartAt = incoming.sleepStartAt ?: sleepStartAt,
-    sleepEndAt = incoming.sleepEndAt ?: sleepEndAt,
-    sleepMinutes = incoming.sleepMinutes ?: sleepMinutes,
-    deepSleepMinutes = incoming.deepSleepMinutes ?: deepSleepMinutes,
-    lightSleepMinutes = incoming.lightSleepMinutes ?: lightSleepMinutes,
-    remSleepMinutes = incoming.remSleepMinutes ?: remSleepMinutes,
-    awakeMinutes = incoming.awakeMinutes ?: awakeMinutes,
-    sleepScore = incoming.sleepScore ?: sleepScore,
-    steps = incoming.steps ?: steps,
+    workoutType = incoming.workoutType,
+    workoutCategory = incoming.workoutCategory,
+    durationSeconds = incoming.durationSeconds ?: durationSeconds,
     distanceMeters = incoming.distanceMeters ?: distanceMeters,
-    activeCaloriesKcal = incoming.activeCaloriesKcal ?: activeCaloriesKcal,
-    exerciseMinutes = incoming.exerciseMinutes ?: exerciseMinutes,
-    exerciseCaloriesKcal = incoming.exerciseCaloriesKcal ?: exerciseCaloriesKcal,
-    restingHeartRateBpm = incoming.restingHeartRateBpm ?: restingHeartRateBpm,
+    caloriesKcal = incoming.caloriesKcal ?: caloriesKcal,
     averageHeartRateBpm = incoming.averageHeartRateBpm ?: averageHeartRateBpm,
-    workoutsJson = incoming.workoutsJson.takeUnless { it == "[]" } ?: workoutsJson,
+    maximumHeartRateBpm = incoming.maximumHeartRateBpm ?: maximumHeartRateBpm,
+    averagePaceSecondsPerKm = incoming.averagePaceSecondsPerKm ?: averagePaceSecondsPerKm,
+    averagePaceSecondsPer100Meters = incoming.averagePaceSecondsPer100Meters ?: averagePaceSecondsPer100Meters,
+    averageCadencePerMinute = incoming.averageCadencePerMinute ?: averageCadencePerMinute,
+    steps = incoming.steps ?: steps,
+    averageStrideCentimeters = incoming.averageStrideCentimeters ?: averageStrideCentimeters,
+    elevationGainMeters = incoming.elevationGainMeters ?: elevationGainMeters,
+    poolLengthMeters = incoming.poolLengthMeters ?: poolLengthMeters,
+    lengths = incoming.lengths ?: lengths,
+    strokes = incoming.strokes ?: strokes,
+    averageSwolf = incoming.averageSwolf ?: averageSwolf,
+    averageStrokeRatePerMinute = incoming.averageStrokeRatePerMinute ?: averageStrokeRatePerMinute,
+    mainStroke = incoming.mainStroke ?: mainStroke,
     confidence = maxOf(confidence, incoming.confidence),
     rawAnalysis = incoming.rawAnalysis ?: rawAnalysis,
 )
 
-data class WellnessImportSummary(
+data class WorkoutImportSummary(
     val added: Int,
     val updated: Int,
     val unchanged: Int,

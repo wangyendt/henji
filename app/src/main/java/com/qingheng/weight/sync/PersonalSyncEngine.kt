@@ -108,16 +108,17 @@ class PersonalSyncEngine(private val database: AppDatabase) {
                     )
                 }
             }
-            database.wellnessDao().allForSync().forEach { wellness ->
-                if (database.syncDao().tombstone(SyncPayloadCodec.WELLNESS, wellness.id) == null) {
+            database.workoutDao().allForSync().forEach { workout ->
+                if (database.syncDao().tombstone(SyncPayloadCodec.WORKOUT, workout.id) == null) {
                     database.syncDao().enqueue(
                         SyncOutboxEvent(
                             eventId = UUID.randomUUID().toString(),
-                            entityType = SyncPayloadCodec.WELLNESS,
-                            entityId = wellness.id,
+                            entityType = SyncPayloadCodec.WORKOUT,
+                            entityId = workout.id,
+                            dedupeKey = SyncIdentity.workout(workout),
                             operation = "upsert",
                             occurredAt = System.currentTimeMillis(),
-                            payloadJson = SyncPayloadCodec.encode(wellness),
+                            payloadJson = SyncPayloadCodec.encode(workout),
                         ),
                     )
                 }
@@ -132,7 +133,8 @@ class PersonalSyncEngine(private val database: AppDatabase) {
                 event.schemaVersion != SyncPayloadCodec.SCHEMA_VERSION -> defer(event)
                 event.entityType == SyncPayloadCodec.WEIGHT -> applyWeight(event)
                 event.entityType == SyncPayloadCodec.MEAL -> applyMeal(event)
-                event.entityType == SyncPayloadCodec.WELLNESS -> applyWellness(event)
+                event.entityType == SyncPayloadCodec.WORKOUT -> applyWorkout(event)
+                event.entityType == SyncPayloadCodec.LEGACY_WELLNESS -> Unit
                 else -> defer(event)
             }
         }
@@ -165,16 +167,19 @@ class PersonalSyncEngine(private val database: AppDatabase) {
         database.mealDao().insert(meal, foods)
     }
 
-    private suspend fun applyWellness(event: CloudSyncEvent) {
+    private suspend fun applyWorkout(event: CloudSyncEvent) {
         if (event.operation == "delete") {
-            deleteLocally(event, SyncPayloadCodec.WELLNESS) {
-                database.wellnessDao().deleteById(event.entityId)
+            deleteLocally(event, SyncPayloadCodec.WORKOUT) {
+                database.workoutDao().deleteById(event.entityId)
             }
             return
         }
-        if (database.syncDao().tombstone(SyncPayloadCodec.WELLNESS, event.entityId) != null) return
-        if (database.syncDao().pendingForEntity(SyncPayloadCodec.WELLNESS, event.entityId) != null) return
-        database.wellnessDao().insert(SyncPayloadCodec.decodeWellness(event.entityId, event.payloadJson))
+        if (database.syncDao().tombstone(SyncPayloadCodec.WORKOUT, event.entityId) != null) return
+        if (event.dedupeKey != null &&
+            database.syncDao().tombstoneByDedupeKey(SyncPayloadCodec.WORKOUT, event.dedupeKey) != null
+        ) return
+        if (database.syncDao().pendingForEntity(SyncPayloadCodec.WORKOUT, event.entityId) != null) return
+        database.workoutDao().insert(SyncPayloadCodec.decodeWorkout(event.entityId, event.payloadJson))
     }
 
     private suspend fun deleteLocally(
@@ -184,8 +189,10 @@ class PersonalSyncEngine(private val database: AppDatabase) {
     ) {
         delete()
         database.syncDao().removePending(entityType, event.entityId)
-        if (entityType == SyncPayloadCodec.WEIGHT && event.dedupeKey != null) {
+        if (event.dedupeKey != null) {
             database.syncDao().removePendingByDedupeKey(entityType, event.dedupeKey)
+        }
+        if (entityType == SyncPayloadCodec.WEIGHT && event.dedupeKey != null) {
             SyncIdentity.parseWeight(event.dedupeKey)?.let { identity ->
                 database.weightDao().deleteByDedupeIdentity(identity.epochMinute, identity.centiKg)
             }

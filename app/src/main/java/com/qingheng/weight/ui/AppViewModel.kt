@@ -21,7 +21,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val meals = app.repository.mealRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val mealFoodItems = app.repository.mealFoodItems.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val foodFrequencies = app.repository.foodFrequencies.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val wellnessRecords = app.repository.wellnessRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val workoutRecords = app.repository.workoutRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val settings = app.settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
     val syncPendingCount = app.personalSync.pendingCount.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val isSaving = MutableStateFlow(false)
@@ -67,7 +67,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val analysis = CodexTaskClient(current.serviceUrl, current.serviceToken)
                 .analyzeHealthScreenshot(getApplication<Application>().contentResolver, uri)
             val records = analysis.toRecords()
-            val summary = app.repository.saveWellnessRecords(records)
+            val summary = app.repository.saveWorkoutRecords(records)
             val syncResult = if (current.personalSyncUrl.isNotBlank() && current.personalSyncToken.isNotBlank()) {
                 runCatching { app.personalSync.sync(current.personalSyncUrl, current.personalSyncToken) }
             } else null
@@ -80,7 +80,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 syncMessage = syncResult?.exceptionOrNull()?.message,
             )
         }.getOrElse { error ->
-            HealthScreenshotImportState.Error(error.message ?: "健康截图识别失败，请稍后重试")
+            HealthScreenshotImportState.Error(error.message ?: "运动详情识别失败，请稍后重试")
         }
     }
 
@@ -163,8 +163,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         app.repository.deleteMeals(records)
         PersonalSyncScheduler.enqueueNow(getApplication())
     }
-    fun deleteWellness(record: DailyWellnessRecord) = viewModelScope.launch {
-        app.repository.deleteWellness(record)
+    fun deleteWorkout(record: WorkoutRecord) = viewModelScope.launch {
+        app.repository.deleteWorkout(record)
         PersonalSyncScheduler.enqueueNow(getApplication())
     }
     suspend fun saveMeal(record: MealRecord, foodItems: List<MealFoodItem>) {
@@ -218,8 +218,8 @@ sealed interface HealthScreenshotImportState {
     data object Idle : HealthScreenshotImportState
     data object Analyzing : HealthScreenshotImportState
     data class Success(
-        val summary: WellnessImportSummary,
-        val records: List<DailyWellnessRecord>,
+        val summary: WorkoutImportSummary,
+        val records: List<WorkoutRecord>,
         val warnings: List<String>,
         val uploaded: Boolean,
         val syncMessage: String?,

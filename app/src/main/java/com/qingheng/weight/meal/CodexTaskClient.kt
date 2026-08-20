@@ -88,19 +88,19 @@ class CodexTaskClient(
         today: LocalDate = LocalDate.now(),
     ): HealthScreenshotAnalysis {
         if (imageUri.scheme != ContentResolver.SCHEME_CONTENT) {
-            throw CodexTaskException.Image("请选择 content:// 类型的健康截图")
+            throw CodexTaskException.Image("请选择 content:// 类型的运动详情分享图")
         }
         val bytes = withContext(Dispatchers.IO) {
             val stream = try {
                 contentResolver.openInputStream(imageUri)
             } catch (error: Exception) {
-                throw CodexTaskException.Image("读取健康截图失败", error)
-            } ?: throw CodexTaskException.Image("无法打开健康截图")
+                throw CodexTaskException.Image("读取运动详情分享图失败", error)
+            } ?: throw CodexTaskException.Image("无法打开运动详情分享图")
             stream.use(::readLimitedImage)
         }
         val mimeType = resolveMimeType(contentResolver.getType(imageUri), bytes)
         val upload = prepareImageForUpload(bytes, mimeType)
-        val fileName = "vivo-health${MIME_EXTENSIONS[upload.mimeType] ?: ".jpg"}"
+        val fileName = "vivo-workout${MIME_EXTENSIONS[upload.mimeType] ?: ".jpg"}"
         val receipt = submitText(
             bytes = upload.bytes,
             mimeType = upload.mimeType,
@@ -108,11 +108,11 @@ class CodexTaskClient(
             prompt = VivoHealthScreenshotPrompt.prompt(today),
             schema = VivoHealthScreenshotPrompt.SCHEMA,
         )
-        val text = awaitResult(receipt, "健康截图识别")
+        val text = awaitResult(receipt, "运动详情识别")
         return try {
             HealthScreenshotParser.parse(text)
         } catch (error: IllegalArgumentException) {
-            throw CodexTaskException.Protocol("健康截图结构化结果解析失败：${error.message}", error)
+            throw CodexTaskException.Protocol("运动详情结构化结果解析失败：${error.message}", error)
         }
     }
 

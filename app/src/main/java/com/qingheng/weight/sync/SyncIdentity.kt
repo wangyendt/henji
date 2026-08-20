@@ -1,6 +1,7 @@
 package com.qingheng.weight.sync
 
 import com.qingheng.weight.data.WeightRecord
+import com.qingheng.weight.data.WorkoutRecord
 import kotlin.math.roundToLong
 
 object SyncIdentity {
@@ -10,6 +11,9 @@ object SyncIdentity {
         "${measuredAt / MILLIS_PER_MINUTE}:${(weightKg * 100.0).roundToLong()}"
 
     fun weight(record: WeightRecord): String = weight(record.measuredAt, record.weightKg)
+
+    fun workout(record: WorkoutRecord): String =
+        "${record.source}:${record.startAt}:${record.workoutType.trim()}"
 
     fun parseWeight(value: String): WeightKey? {
         val pieces = value.split(':', limit = 2)

@@ -24,7 +24,7 @@ fun ImportScreen(
 ) {
     val importState by vm.fitdaysImportState.collectAsState()
     val healthState by vm.healthSyncState.collectAsState()
-    val wellnessRecords by vm.wellnessRecords.collectAsState()
+    val workoutRecords by vm.workoutRecords.collectAsState()
     val settings by vm.settings.collectAsState()
     val unit = settings.weightUnit
     var manual by remember(unit) { mutableStateOf("") }
@@ -38,16 +38,16 @@ fun ImportScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
             ) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("vivo 健康截图", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Text("在 vivo 健康的睡眠、步数或运动页面截图并分享给“衡迹”，会自动解析、结构化保存并同步到个人数据库。")
+                    Text("vivo 健康运动记录", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text("打开一条跑步、步行或游泳记录，点击右上角分享并选择“衡迹”。睡眠页没有分享入口，因此不导入睡眠或每日活动。")
                     Button(chooseHealthScreenshot, Modifier.fillMaxWidth()) {
                         Icon(Icons.Outlined.AddPhotoAlternate, null)
                         Spacer(Modifier.width(7.dp))
-                        Text("选择健康截图")
+                        Text("选择运动详情分享图")
                     }
-                    wellnessRecords.take(3).forEach { record ->
+                    workoutRecords.take(3).forEach { record ->
                         Text(
-                            "${java.time.LocalDate.ofEpochDay(record.dateEpochDay)}  ${record.summaryText()}",
+                            "${record.startAt.asDate()}  ${record.summaryText()}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

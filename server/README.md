@@ -1,6 +1,6 @@
 # 衡迹个人数据同步服务
 
-服务端接收体重、身体成分、饮食结构化数据，以及从 vivo 健康截图提取的睡眠/步数/运动数据；不上传饮食照片或健康截图。采用追加事件日志和当前对象墓碑，保证请求重试幂等，并阻止离线旧设备复活已经删除的记录。
+服务端接收体重、身体成分、饮食结构化数据，以及从 vivo 健康分享图提取的单次跑步、步行和游泳记录；不上传饮食照片或健康截图。采用追加事件日志和当前对象墓碑，保证请求重试幂等，并阻止离线旧设备复活已经删除的记录。
 
 ## 接口
 
@@ -22,6 +22,7 @@
    psql -f sql/002_weight_dedupe_key.sql personal_knowledge
    psql -f sql/003_normalize_weight_dedupe_key.sql personal_knowledge
    psql -f sql/004_daily_wellness_view.sql personal_knowledge
+   psql -f sql/005_workout_records.sql personal_knowledge
    ```
 
 3. `docker compose up -d --build`。

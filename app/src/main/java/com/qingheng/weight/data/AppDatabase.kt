@@ -10,19 +10,19 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WeightRecord::class,
         MealRecord::class,
         MealFoodItem::class,
-        DailyWellnessRecord::class,
+        WorkoutRecord::class,
         SyncOutboxEvent::class,
         SyncTombstone::class,
         SyncMetadata::class,
         DeferredSyncEvent::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun weightDao(): WeightDao
     abstract fun mealDao(): MealDao
-    abstract fun wellnessDao(): WellnessDao
+    abstract fun workoutDao(): WorkoutDao
     abstract fun syncDao(): SyncDao
 
     companion object {
@@ -205,6 +205,91 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_daily_wellness_records_source_dateEpochDay` ON `daily_wellness_records` (`source`, `dateEpochDay`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_daily_wellness_records_dateEpochDay` ON `daily_wellness_records` (`dateEpochDay`)")
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workout_records` (
+                        `id` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `workoutType` TEXT NOT NULL,
+                        `workoutCategory` TEXT NOT NULL,
+                        `startAt` INTEGER NOT NULL,
+                        `durationSeconds` INTEGER,
+                        `distanceMeters` REAL,
+                        `caloriesKcal` REAL,
+                        `averageHeartRateBpm` REAL,
+                        `maximumHeartRateBpm` REAL,
+                        `averagePaceSecondsPerKm` REAL,
+                        `averagePaceSecondsPer100Meters` REAL,
+                        `averageCadencePerMinute` REAL,
+                        `steps` INTEGER,
+                        `averageStrideCentimeters` REAL,
+                        `elevationGainMeters` REAL,
+                        `poolLengthMeters` REAL,
+                        `lengths` INTEGER,
+                        `strokes` INTEGER,
+                        `averageSwolf` REAL,
+                        `averageStrokeRatePerMinute` REAL,
+                        `mainStroke` TEXT,
+                        `confidence` REAL NOT NULL,
+                        `rawAnalysis` TEXT,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT OR IGNORE INTO `workout_records` (
+                        `id`, `updatedAt`, `source`, `workoutType`, `workoutCategory`, `startAt`,
+                        `durationSeconds`, `distanceMeters`, `caloriesKcal`,
+                        `averageHeartRateBpm`, `maximumHeartRateBpm`,
+                        `averagePaceSecondsPerKm`, `averagePaceSecondsPer100Meters`,
+                        `averageCadencePerMinute`, `steps`, `averageStrideCentimeters`,
+                        `elevationGainMeters`, `poolLengthMeters`, `lengths`, `strokes`,
+                        `averageSwolf`, `averageStrokeRatePerMinute`, `mainStroke`,
+                        `confidence`, `rawAnalysis`
+                    )
+                    SELECT
+                        'vivo-workout-' ||
+                            CAST(CAST(strftime('%s', json_extract(workout.value, '$.startAt')) AS INTEGER) * 1000 AS TEXT) ||
+                            '-' || json_extract(workout.value, '$.type'),
+                        legacy.updatedAt,
+                        'vivo_health_share',
+                        json_extract(workout.value, '$.type'),
+                        CASE
+                            WHEN json_extract(workout.value, '$.type') LIKE '%游泳%' THEN 'swimming'
+                            WHEN json_extract(workout.value, '$.type') LIKE '%跑%' THEN 'running'
+                            WHEN json_extract(workout.value, '$.type') LIKE '%步行%'
+                              OR json_extract(workout.value, '$.type') LIKE '%健走%' THEN 'walking'
+                            ELSE 'other'
+                        END,
+                        CAST(strftime('%s', json_extract(workout.value, '$.startAt')) AS INTEGER) * 1000,
+                        CAST(round(json_extract(workout.value, '$.durationMinutes') * 60.0) AS INTEGER),
+                        json_extract(workout.value, '$.distanceKm') * 1000.0,
+                        json_extract(workout.value, '$.caloriesKcal'),
+                        json_extract(workout.value, '$.averageHeartRateBpm'),
+                        json_extract(workout.value, '$.maximumHeartRateBpm'),
+                        NULL, NULL, NULL, NULL, NULL, NULL,
+                        NULL, NULL, NULL, NULL, NULL, NULL,
+                        legacy.confidence,
+                        legacy.rawAnalysis
+                    FROM `daily_wellness_records` AS legacy,
+                         json_each(legacy.workoutsJson) AS workout
+                    WHERE json_valid(legacy.workoutsJson)
+                      AND json_extract(workout.value, '$.startAt') IS NOT NULL
+                      AND length(trim(json_extract(workout.value, '$.type'))) > 0
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workout_records_source_startAt_workoutType` ON `workout_records` (`source`, `startAt`, `workoutType`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workout_records_startAt` ON `workout_records` (`startAt`)")
+                db.execSQL("DELETE FROM `sync_outbox` WHERE `entityType` = 'daily_wellness_record'")
+                db.execSQL("UPDATE `sync_metadata` SET `initialized` = 0")
+                db.execSQL("DROP TABLE IF EXISTS `daily_wellness_records`")
             }
         }
     }

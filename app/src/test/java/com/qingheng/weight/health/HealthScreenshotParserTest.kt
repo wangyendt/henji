@@ -1,64 +1,67 @@
 package com.qingheng.weight.health
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
-import java.time.LocalDate
 import java.time.OffsetDateTime
 
 class HealthScreenshotParserTest {
     @Test
-    fun `parses sleep activity and workout without inventing missing fields`() {
-        val result = HealthScreenshotParser.parse(
-            """
-            ```json
+    fun `parses a shared walking workout without inventing swimming fields`() {
+        val output = """
             {
-              "sourceApp": "vivo健康",
-              "screenType": "综合",
-              "observations": [{
-                "date": "2026-08-20",
-                "sleepStart": "2026-08-19T23:42:00+08:00",
-                "sleepEnd": "2026-08-20T07:18:00+08:00",
-                "sleepMinutes": 456,
-                "deepSleepMinutes": 92,
-                "lightSleepMinutes": 245,
-                "remSleepMinutes": 98,
-                "awakeMinutes": 21,
-                "sleepScore": 84,
-                "steps": 6842,
-                "distanceKm": 4.81,
-                "activeCaloriesKcal": 328,
-                "exerciseMinutes": 36,
-                "workouts": [{"type":"户外步行","durationMinutes":31,"distanceKm":2.6}],
-                "confidence": 0.96
+              "sourceApp":"vivo健康",
+              "screenType":"运动详情",
+              "workouts":[{
+                "type":"户外步行",
+                "category":"walking",
+                "startAt":"2026-08-20T18:09:32+08:00",
+                "durationMinutes":45.85,
+                "distanceMeters":3000,
+                "caloriesKcal":283,
+                "averageHeartRateBpm":114,
+                "maximumHeartRateBpm":130,
+                "averagePaceSecondsPerKm":913,
+                "averagePaceSecondsPer100Meters":null,
+                "averageCadencePerMinute":97,
+                "steps":4435,
+                "averageStrideCentimeters":67,
+                "elevationGainMeters":7,
+                "poolLengthMeters":null,
+                "lengths":null,
+                "strokes":null,
+                "averageSwolf":null,
+                "averageStrokeRatePerMinute":null,
+                "mainStroke":null,
+                "confidence":0.99
               }],
-              "warnings": []
+              "warnings":[]
             }
-            ```
-            """.trimIndent(),
-        )
+        """.trimIndent()
 
-        val item = result.observations.single()
-        assertEquals(LocalDate.of(2026, 8, 20), item.date)
-        assertEquals(456, item.sleepMinutes)
-        assertEquals(6842L, item.steps)
-        assertEquals(4.81, item.distanceKm!!, 0.001)
+        val analysis = HealthScreenshotParser.parse(output)
+        val item = analysis.workouts.single()
+        assertEquals("walking", item.workoutCategory)
+        assertEquals(2_751, item.durationSeconds)
+        assertEquals(3_000.0, item.distanceMeters!!, 0.001)
         assertEquals(
-            OffsetDateTime.parse("2026-08-19T23:42:00+08:00").toInstant().toEpochMilli(),
-            item.sleepStartAt,
+            OffsetDateTime.parse("2026-08-20T18:09:32+08:00").toInstant().toEpochMilli(),
+            item.startAt,
         )
-        assertTrue(item.workoutsJson.contains("户外步行"))
-        assertEquals(null, item.restingHeartRateBpm)
+        assertNull(item.poolLengthMeters)
+        val record = analysis.toRecords(updatedAt = 123L).single()
+        assertEquals("vivo-workout-${item.startAt}-户外步行", record.id)
+        assertEquals(123L, record.updatedAt)
     }
 
-    @Test(expected = IllegalArgumentException::class)
-    fun `rejects observation containing no visible metric`() {
-        HealthScreenshotParser.parse(
-            """
-            {"sourceApp":"vivo健康","screenType":"未知","observations":[
-              {"date":"2026-08-20","workouts":[],"confidence":0.5}
-            ],"warnings":["没有明确数据"]}
-            """.trimIndent(),
-        )
+    @Test
+    fun `rejects sleep screenshot output`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            HealthScreenshotParser.parse(
+                """{"sourceApp":"vivo健康","screenType":"未知","workouts":[],"warnings":["睡眠页"]}""",
+            )
+        }
+        assertEquals(true, error.message!!.contains("睡眠"))
     }
 }
