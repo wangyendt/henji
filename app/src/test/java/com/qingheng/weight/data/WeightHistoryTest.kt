@@ -10,15 +10,24 @@ class WeightHistoryTest {
     private val zone = ZoneId.of("Asia/Shanghai")
 
     @Test
-    fun `daily weight uses the last measurement`() {
+    fun `daily weight uses the last measurement before two pm`() {
         val morning = record("morning", "2026-08-10T08:00", 70.0, bodyFat = 20.0)
+        val earlyAfternoon = record("early-afternoon", "2026-08-10T13:59", 70.4)
         val evening = record("evening", "2026-08-10T21:00", 70.8)
 
-        val day = groupWeightRecordsByDay(listOf(morning, evening), zone).single()
+        val day = groupWeightRecordsByDay(listOf(morning, earlyAfternoon, evening), zone).single()
 
-        assertEquals("evening", day.latest.id)
-        assertEquals(70.8, day.latest.weightKg, 0.001)
-        assertEquals(listOf("evening", "morning"), day.records.map { it.id })
+        assertEquals("early-afternoon", day.latest.id)
+        assertEquals(70.4, day.latest.weightKg, 0.001)
+        assertEquals(listOf("early-afternoon", "morning"), day.records.map { it.id })
+    }
+
+    @Test
+    fun `day with only measurements at or after two pm is not displayed`() {
+        val cutoff = record("cutoff", "2026-08-10T14:00", 70.4)
+        val evening = record("evening", "2026-08-10T21:00", 70.8)
+
+        assertEquals(emptyList<DailyWeightHistory>(), groupWeightRecordsByDay(listOf(cutoff, evening), zone))
     }
 
     @Test
@@ -28,7 +37,7 @@ class WeightHistoryTest {
         val evening = record("evening", "2026-08-10T21:00", 70.8)
         val records = listOf(morning, noon, evening)
 
-        assertEquals(70.8, dailyMetricPoints(records, TrendMetric.WEIGHT, zone).single().value, 0.001)
+        assertEquals(70.3, dailyMetricPoints(records, TrendMetric.WEIGHT, zone).single().value, 0.001)
         assertEquals(19.8, dailyMetricPoints(records, TrendMetric.BODY_FAT, zone).single().value, 0.001)
     }
 
@@ -61,8 +70,22 @@ class WeightHistoryTest {
         assertEquals(-10.0, summary.earliestChangeKg, 0.001)
         assertEquals(-6.0, summary.thirtyDayChangeKg, 0.001)
         assertEquals(-2.0, summary.sevenDayChangeKg, 0.001)
+        assertNull(summary.previousDayChangeKg)
         assertEquals(50.0, summary.weightLossProgressPercentage, 0.001)
         assertEquals(10.0, summary.remainingToGoalKg, 0.001)
+    }
+
+    @Test
+    fun `dashboard compares current value with the previous calendar day`() {
+        val records = listOf(
+            record("older", "2026-08-10T08:00", 92.0),
+            record("yesterday", "2026-08-12T08:00", 91.0),
+            record("current", "2026-08-13T08:00", 90.4),
+        )
+
+        val summary = dashboardWeightSummary(groupWeightRecordsByDay(records, zone), 80.0)!!
+
+        assertEquals(-0.6, summary.previousDayChangeKg!!, 0.001)
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.qingheng.weight.data
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.max
@@ -37,7 +38,7 @@ data class DailyWeightHistory(
     val date: LocalDate,
     val records: List<WeightRecord>,
 ) {
-    /** The latest measurement is the representative weight for this day. */
+    /** The latest measurement before the daily display cutoff represents this day. */
     val latest: WeightRecord get() = records.first()
 }
 
@@ -51,6 +52,7 @@ fun groupWeightRecordsByDay(
     records: List<WeightRecord>,
     zoneId: ZoneId = ZoneId.systemDefault(),
 ): List<DailyWeightHistory> = records
+    .filter { it.measuredAt.isBeforeDailyDisplayCutoff(zoneId) }
     .groupBy { it.measuredAt.toLocalDate(zoneId) }
     .map { (date, values) ->
         DailyWeightHistory(date, values.sortedByDescending(WeightRecord::measuredAt))
@@ -58,9 +60,10 @@ fun groupWeightRecordsByDay(
     .sortedByDescending(DailyWeightHistory::date)
 
 /**
- * Produces one point per day. Weight uses the last measurement of that day. For
- * body-composition fields, the last non-null value is used so that a later
- * weight-only measurement does not erase an earlier complete measurement.
+ * Produces one point per day from measurements before 14:00. Weight uses the
+ * last eligible measurement. For body-composition fields, the last non-null
+ * eligible value is used so that a later weight-only measurement does not
+ * erase an earlier complete measurement.
  */
 fun dailyMetricPoints(
     records: List<WeightRecord>,
@@ -95,6 +98,7 @@ data class DashboardWeightSummary(
     val earliestChangeKg: Double,
     val thirtyDayChangeKg: Double,
     val sevenDayChangeKg: Double,
+    val previousDayChangeKg: Double?,
     val weightLossProgressPercentage: Double,
     val remainingToGoalKg: Double,
 )
@@ -127,6 +131,8 @@ fun dashboardWeightSummary(
         earliestChangeKg = currentKg - earliestKg,
         thirtyDayChangeKg = changeWithin(30),
         sevenDayChangeKg = changeWithin(7),
+        previousDayChangeKg = days.firstOrNull { it.date == currentDay.date.minusDays(1) }
+            ?.let { currentKg - it.latest.weightKg },
         weightLossProgressPercentage = weightLossProgressPercentage,
         remainingToGoalKg = max(0.0, currentKg - goalWeightKg),
     )
@@ -134,3 +140,8 @@ fun dashboardWeightSummary(
 
 private fun Long.toLocalDate(zoneId: ZoneId): LocalDate =
     Instant.ofEpochMilli(this).atZone(zoneId).toLocalDate()
+
+private val dailyDisplayCutoff: LocalTime = LocalTime.of(14, 0)
+
+private fun Long.isBeforeDailyDisplayCutoff(zoneId: ZoneId): Boolean =
+    Instant.ofEpochMilli(this).atZone(zoneId).toLocalTime().isBefore(dailyDisplayCutoff)

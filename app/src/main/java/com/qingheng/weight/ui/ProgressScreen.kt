@@ -57,13 +57,15 @@ fun ProgressScreen(vm: AppViewModel) {
     val mealFoodItems by vm.mealFoodItems.collectAsState()
     val settings by vm.settings.collectAsState()
     val unit = settings.weightUnit
-    val earliestKg = remember(all) { earliestWeightKg(all) }
     val history = remember(all) { groupWeightRecordsByDay(all) }
+    val earliestKg = remember(history) {
+        history.minByOrNull { it.date }?.latest?.weightKg
+    }
     val mealHistory = remember(meals, mealFoodItems) { groupMealsByDay(meals, mealFoodItems) }
     val foodsByMeal = remember(mealFoodItems) { mealFoodItems.groupBy(MealFoodItem::mealId) }
     var selectedMealId by rememberSaveable { mutableStateOf<String?>(null) }
     var metricName by rememberSaveable { mutableStateOf(TrendMetric.WEIGHT.name) }
-    var rangeIndex by rememberSaveable { mutableIntStateOf(1) }
+    var rangeIndex by rememberSaveable { mutableIntStateOf(rangeOptions.lastIndex) }
     val metric = TrendMetric.valueOf(metricName)
     val allPoints = remember(all, metric) { dailyMetricPoints(all, metric) }
     val cutoff = rangeOptions[rangeIndex].days?.let { LocalDate.now().minusDays((it - 1).toLong()) }
@@ -163,7 +165,7 @@ private fun TrendCard(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "每天最后一个有效值",
+                        "每天 14:00 前最后一个有效值",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -275,7 +277,7 @@ private fun DailyRuleNote() {
         Column(Modifier.padding(14.dp)) {
             Text("同一天称多次时", fontWeight = FontWeight.SemiBold)
             Text(
-                "体重取当天最后一次；体脂等其他指标取当天最后一个非空结果。日历中会保留当天全部记录。",
+                "体重取当天 14:00 前最后一次；体脂等其他指标取 14:00 前最后一个非空结果。14:00 及之后的称重不在首页、趋势和日历中显示。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
@@ -333,7 +335,7 @@ private fun MeasurementCalendar(
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "体重颜色越深代表数值越高；日期下方会标出当天餐数",
+                "显示每天 14:00 前最后一次体重；日期下方会标出当天餐数",
                 Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

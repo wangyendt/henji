@@ -17,9 +17,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qingheng.weight.data.TrendMetric
 import com.qingheng.weight.data.WeightUnit
+import com.qingheng.weight.data.dailyMetricPoints
 import com.qingheng.weight.data.dashboardWeightSummary
-import com.qingheng.weight.data.earliestWeightKg
 import com.qingheng.weight.data.groupWeightRecordsByDay
 import kotlin.math.abs
 
@@ -29,15 +30,19 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
     val meals by vm.meals.collectAsState()
     val settings by vm.settings.collectAsState()
     val unit = settings.weightUnit
-    val earliestKg = remember(records) { earliestWeightKg(records) }
     val dailyHistory = remember(records) { groupWeightRecordsByDay(records) }
+    val earliestKg = remember(dailyHistory) {
+        dailyHistory.minByOrNull { it.date }?.latest?.weightKg
+    }
     val summary = remember(dailyHistory, settings.profile.goalWeightKg) {
         dashboardWeightSummary(dailyHistory, settings.profile.goalWeightKg)
     }
-    val latestBmi = remember(records) { records.firstNotNullOfOrNull { it.bmi } }
-    val latestBodyFat = remember(records) { records.firstNotNullOfOrNull { it.bodyFatPercent } }
-    val latestBodyWater = remember(records) { records.firstNotNullOfOrNull { it.bodyWaterPercent } }
-    val latestSkeletalMuscle = remember(records) { records.firstNotNullOfOrNull { it.skeletalMusclePercent } }
+    val latestBmi = remember(records) { dailyMetricPoints(records, TrendMetric.BMI).lastOrNull()?.value }
+    val latestBodyFat = remember(records) { dailyMetricPoints(records, TrendMetric.BODY_FAT).lastOrNull()?.value }
+    val latestBodyWater = remember(records) { dailyMetricPoints(records, TrendMetric.BODY_WATER).lastOrNull()?.value }
+    val latestSkeletalMuscle = remember(records) {
+        dailyMetricPoints(records, TrendMetric.SKELETAL_MUSCLE).lastOrNull()?.value
+    }
     val todayStart = remember {
         java.util.Calendar.getInstance().apply {
             set(java.util.Calendar.HOUR_OF_DAY, 0)
@@ -87,10 +92,11 @@ fun DashboardScreen(vm: AppViewModel, onImport: () -> Unit, onMeal: () -> Unit) 
                     Text(" ${unit.symbol}", modifier = Modifier.padding(bottom = 9.dp))
                 }
                 Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     WeightChangeStat("较最早", summary?.earliestChangeKg, unit, Modifier.weight(1f))
                     WeightChangeStat("近 30 天", summary?.thirtyDayChangeKg, unit, Modifier.weight(1f))
                     WeightChangeStat("近 7 天", summary?.sevenDayChangeKg, unit, Modifier.weight(1f))
+                    WeightChangeStat("较前一日", summary?.previousDayChangeKg, unit, Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
