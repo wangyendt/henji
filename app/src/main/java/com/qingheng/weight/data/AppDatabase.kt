@@ -10,17 +10,19 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WeightRecord::class,
         MealRecord::class,
         MealFoodItem::class,
+        DailyWellnessRecord::class,
         SyncOutboxEvent::class,
         SyncTombstone::class,
         SyncMetadata::class,
         DeferredSyncEvent::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun weightDao(): WeightDao
     abstract fun mealDao(): MealDao
+    abstract fun wellnessDao(): WellnessDao
     abstract fun syncDao(): SyncDao
 
     companion object {
@@ -166,6 +168,43 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `sync_tombstones` ADD COLUMN `dedupeKey` TEXT")
                 db.execSQL("ALTER TABLE `sync_deferred_events` ADD COLUMN `dedupeKey` TEXT")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_tombstones_entityType_dedupeKey` ON `sync_tombstones` (`entityType`, `dedupeKey`)")
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `daily_wellness_records` (
+                        `id` TEXT NOT NULL,
+                        `dateEpochDay` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `screenType` TEXT NOT NULL,
+                        `sleepStartAt` INTEGER,
+                        `sleepEndAt` INTEGER,
+                        `sleepMinutes` INTEGER,
+                        `deepSleepMinutes` INTEGER,
+                        `lightSleepMinutes` INTEGER,
+                        `remSleepMinutes` INTEGER,
+                        `awakeMinutes` INTEGER,
+                        `sleepScore` REAL,
+                        `steps` INTEGER,
+                        `distanceMeters` REAL,
+                        `activeCaloriesKcal` REAL,
+                        `exerciseMinutes` INTEGER,
+                        `exerciseCaloriesKcal` REAL,
+                        `restingHeartRateBpm` REAL,
+                        `averageHeartRateBpm` REAL,
+                        `workoutsJson` TEXT NOT NULL,
+                        `confidence` REAL NOT NULL,
+                        `rawAnalysis` TEXT,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_daily_wellness_records_source_dateEpochDay` ON `daily_wellness_records` (`source`, `dateEpochDay`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_daily_wellness_records_dateEpochDay` ON `daily_wellness_records` (`dateEpochDay`)")
             }
         }
     }

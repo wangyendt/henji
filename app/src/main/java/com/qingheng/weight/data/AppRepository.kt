@@ -11,11 +11,13 @@ class AppRepository(
     private val meals: MealDao,
     private val sync: SyncDao? = null,
     private val database: AppDatabase? = null,
+    private val wellness: WellnessDao? = null,
 ) {
     val weightRecords: Flow<List<WeightRecord>> = weights.observeAll()
     val mealRecords: Flow<List<MealRecord>> = meals.observeAll()
     val mealFoodItems: Flow<List<MealFoodItem>> = meals.observeAllFoodItems()
     val foodFrequencies: Flow<List<FoodMealFrequency>> = meals.observeFoodFrequencies()
+    val wellnessRecords: Flow<List<DailyWellnessRecord>> = wellness?.observeAll() ?: kotlinx.coroutines.flow.flowOf(emptyList())
 
     private suspend fun saveManualMeasurement(metrics: BodyMetrics) {
         val record = WeightRecord(
@@ -117,6 +119,25 @@ class AppRepository(
         enqueue(record, foodItems)
     }
 
+    suspend fun saveWellnessRecords(records: List<DailyWellnessRecord>): WellnessImportSummary {
+        val dao = requireNotNull(wellness) { "健康截图存储尚未初始化" }
+        var added = 0
+        var updated = 0
+        inTransaction {
+            records.forEach { incoming ->
+                if (sync?.tombstone(SyncPayloadCodec.WELLNESS, incoming.id) != null) return@forEach
+                val existing = dao.findById(incoming.id)
+                val merged = existing?.merge(incoming) ?: incoming
+                if (existing == null) added++ else if (existing != merged) updated++
+                if (existing != merged) {
+                    dao.insert(merged)
+                    enqueue(merged)
+                }
+            }
+        }
+        return WellnessImportSummary(added, updated, records.size - added - updated)
+    }
+
     suspend fun deleteWeight(record: WeightRecord) = inTransaction {
         weights.delete(record)
         tombstoneAndEnqueue(SyncPayloadCodec.WEIGHT, record.id, SyncIdentity.weight(record))
@@ -130,6 +151,11 @@ class AppRepository(
     suspend fun deleteMeals(records: List<MealRecord>) = inTransaction {
         meals.delete(records)
         records.forEach { tombstoneAndEnqueue(SyncPayloadCodec.MEAL, it.id) }
+    }
+
+    suspend fun deleteWellness(record: DailyWellnessRecord) = inTransaction {
+        wellness?.delete(record)
+        tombstoneAndEnqueue(SyncPayloadCodec.WELLNESS, record.id)
     }
 
     private suspend fun enqueue(record: WeightRecord) {
@@ -159,6 +185,19 @@ class AppRepository(
         )
     }
 
+    private suspend fun enqueue(record: DailyWellnessRecord) {
+        sync?.enqueue(
+            SyncOutboxEvent(
+                eventId = UUID.randomUUID().toString(),
+                entityType = SyncPayloadCodec.WELLNESS,
+                entityId = record.id,
+                operation = "upsert",
+                occurredAt = System.currentTimeMillis(),
+                payloadJson = SyncPayloadCodec.encode(record),
+            ),
+        )
+    }
+
     private suspend fun tombstoneAndEnqueue(entityType: String, entityId: String, dedupeKey: String? = null) {
         val dao = sync ?: return
         val deletedAt = System.currentTimeMillis()
@@ -179,6 +218,35 @@ class AppRepository(
     private suspend fun <T> inTransaction(block: suspend () -> T): T =
         database?.withTransaction { block() } ?: block()
 }
+
+private fun DailyWellnessRecord.merge(incoming: DailyWellnessRecord): DailyWellnessRecord = copy(
+    updatedAt = maxOf(updatedAt, incoming.updatedAt),
+    screenType = if (screenType == incoming.screenType) screenType else "综合",
+    sleepStartAt = incoming.sleepStartAt ?: sleepStartAt,
+    sleepEndAt = incoming.sleepEndAt ?: sleepEndAt,
+    sleepMinutes = incoming.sleepMinutes ?: sleepMinutes,
+    deepSleepMinutes = incoming.deepSleepMinutes ?: deepSleepMinutes,
+    lightSleepMinutes = incoming.lightSleepMinutes ?: lightSleepMinutes,
+    remSleepMinutes = incoming.remSleepMinutes ?: remSleepMinutes,
+    awakeMinutes = incoming.awakeMinutes ?: awakeMinutes,
+    sleepScore = incoming.sleepScore ?: sleepScore,
+    steps = incoming.steps ?: steps,
+    distanceMeters = incoming.distanceMeters ?: distanceMeters,
+    activeCaloriesKcal = incoming.activeCaloriesKcal ?: activeCaloriesKcal,
+    exerciseMinutes = incoming.exerciseMinutes ?: exerciseMinutes,
+    exerciseCaloriesKcal = incoming.exerciseCaloriesKcal ?: exerciseCaloriesKcal,
+    restingHeartRateBpm = incoming.restingHeartRateBpm ?: restingHeartRateBpm,
+    averageHeartRateBpm = incoming.averageHeartRateBpm ?: averageHeartRateBpm,
+    workoutsJson = incoming.workoutsJson.takeUnless { it == "[]" } ?: workoutsJson,
+    confidence = maxOf(confidence, incoming.confidence),
+    rawAnalysis = incoming.rawAnalysis ?: rawAnalysis,
+)
+
+data class WellnessImportSummary(
+    val added: Int,
+    val updated: Int,
+    val unchanged: Int,
+)
 
 data class HealthConnectMeasurement(
     val healthConnectId: String,

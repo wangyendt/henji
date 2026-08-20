@@ -99,6 +99,27 @@ interface MealDao {
 }
 
 @Dao
+interface WellnessDao {
+    @Query("SELECT * FROM daily_wellness_records ORDER BY dateEpochDay DESC")
+    fun observeAll(): Flow<List<DailyWellnessRecord>>
+
+    @Query("SELECT * FROM daily_wellness_records ORDER BY dateEpochDay")
+    suspend fun allForSync(): List<DailyWellnessRecord>
+
+    @Query("SELECT * FROM daily_wellness_records WHERE id = :id LIMIT 1")
+    suspend fun findById(id: String): DailyWellnessRecord?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(record: DailyWellnessRecord)
+
+    @Query("DELETE FROM daily_wellness_records WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Delete
+    suspend fun delete(record: DailyWellnessRecord)
+}
+
+@Dao
 interface SyncDao {
     @Query("SELECT COUNT(*) FROM sync_outbox")
     fun observePendingCount(): Flow<Int>

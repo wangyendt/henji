@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,17 +18,50 @@ import androidx.compose.ui.unit.dp
 fun ImportScreen(
     vm: AppViewModel,
     chooseFitdaysFile: () -> Unit,
+    chooseHealthScreenshot: () -> Unit,
     openFitdays: () -> Unit,
     requestHealthConnectPermissions: () -> Unit,
 ) {
     val importState by vm.fitdaysImportState.collectAsState()
     val healthState by vm.healthSyncState.collectAsState()
+    val wellnessRecords by vm.wellnessRecords.collectAsState()
     val settings by vm.settings.collectAsState()
     val unit = settings.weightUnit
     var manual by remember(unit) { mutableStateOf("") }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { ScreenHeader("导入身体数据", "从 Fitdays 导入完整历史记录") }
+        item {
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+            ) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("vivo 健康截图", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text("在 vivo 健康的睡眠、步数或运动页面截图并分享给“衡迹”，会自动解析、结构化保存并同步到个人数据库。")
+                    Button(chooseHealthScreenshot, Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.AddPhotoAlternate, null)
+                        Spacer(Modifier.width(7.dp))
+                        Text("选择健康截图")
+                    }
+                    wellnessRecords.take(3).forEach { record ->
+                        val parts = buildList {
+                            record.sleepMinutes?.let { add("睡眠 ${it / 60}小时${it % 60}分") }
+                            record.steps?.let { add("$it 步") }
+                            record.exerciseMinutes?.let { add("运动 $it 分钟") }
+                            if (isEmpty()) add(record.screenType)
+                        }
+                        Text(
+                            "${java.time.LocalDate.ofEpochDay(record.dateEpochDay)}  ${parts.joinToString(" · ")}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
         item {
             Card(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp),

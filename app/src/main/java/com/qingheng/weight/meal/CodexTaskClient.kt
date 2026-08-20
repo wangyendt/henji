@@ -4,6 +4,9 @@ import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.qingheng.weight.health.HealthScreenshotAnalysis
+import com.qingheng.weight.health.HealthScreenshotParser
+import com.qingheng.weight.health.VivoHealthScreenshotPrompt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -21,6 +24,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import java.time.LocalDate
 import kotlin.math.roundToInt
 
 data class CodexTaskPollingOptions(
@@ -78,6 +82,40 @@ class CodexTaskClient(
         return analyzeImage(upload.bytes, upload.mimeType)
     }
 
+    suspend fun analyzeHealthScreenshot(
+        contentResolver: ContentResolver,
+        imageUri: Uri,
+        today: LocalDate = LocalDate.now(),
+    ): HealthScreenshotAnalysis {
+        if (imageUri.scheme != ContentResolver.SCHEME_CONTENT) {
+            throw CodexTaskException.Image("请选择 content:// 类型的健康截图")
+        }
+        val bytes = withContext(Dispatchers.IO) {
+            val stream = try {
+                contentResolver.openInputStream(imageUri)
+            } catch (error: Exception) {
+                throw CodexTaskException.Image("读取健康截图失败", error)
+            } ?: throw CodexTaskException.Image("无法打开健康截图")
+            stream.use(::readLimitedImage)
+        }
+        val mimeType = resolveMimeType(contentResolver.getType(imageUri), bytes)
+        val upload = prepareImageForUpload(bytes, mimeType)
+        val fileName = "vivo-health${MIME_EXTENSIONS[upload.mimeType] ?: ".jpg"}"
+        val receipt = submitText(
+            bytes = upload.bytes,
+            mimeType = upload.mimeType,
+            fileName = fileName,
+            prompt = VivoHealthScreenshotPrompt.prompt(today),
+            schema = VivoHealthScreenshotPrompt.SCHEMA,
+        )
+        val text = awaitResult(receipt, "健康截图识别")
+        return try {
+            HealthScreenshotParser.parse(text)
+        } catch (error: IllegalArgumentException) {
+            throw CodexTaskException.Protocol("健康截图结构化结果解析失败：${error.message}", error)
+        }
+    }
+
     internal suspend fun analyzeImage(
         bytes: ByteArray,
         mimeType: String,
@@ -87,8 +125,8 @@ class CodexTaskClient(
         if (bytes.size > MAX_IMAGE_BYTES) throw CodexTaskException.Image("食物图片不能超过 20 MiB")
         if (mimeType !in MIME_EXTENSIONS) throw CodexTaskException.Image("图片格式仅支持 PNG、JPEG、WebP 或 GIF")
 
-        val receipt = submitText(bytes, mimeType, fileName)
-        val text = awaitResult(receipt)
+        val receipt = submitText(bytes, mimeType, fileName, ANALYSIS_PROMPT, MEAL_SCHEMA)
+        val text = awaitResult(receipt, "食物识别")
         return try {
             MealAnalysisParser.parse(text)
         } catch (error: MealAnalysisParseException) {
@@ -96,12 +134,18 @@ class CodexTaskClient(
         }
     }
 
-    private suspend fun submitText(bytes: ByteArray, mimeType: String, fileName: String): JobReceipt {
+    private suspend fun submitText(
+        bytes: ByteArray,
+        mimeType: String,
+        fileName: String,
+        prompt: String,
+        schema: String,
+    ): JobReceipt {
         val body = JSONObject().apply {
-            put("prompt", ANALYSIS_PROMPT)
+            put("prompt", prompt)
             put("backend", "direct")
             put("reasoning", "medium")
-            put("schema", JSONObject(MEAL_SCHEMA))
+            put("schema", JSONObject(schema))
             put("images", JSONArray().put(JSONObject().apply {
                 put("name", fileName)
                 put("mimeType", mimeType)
@@ -122,11 +166,11 @@ class CodexTaskClient(
         return JobReceipt(jobId, statusUrl)
     }
 
-    private suspend fun awaitResult(receipt: JobReceipt): String {
+    private suspend fun awaitResult(receipt: JobReceipt, taskLabel: String): String {
         val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(polling.timeoutMillis)
         while (true) {
             if (System.nanoTime() >= deadline) {
-                throw CodexTaskException.Timeout("食物识别超时（任务 ${receipt.jobId}）")
+                throw CodexTaskException.Timeout("${taskLabel}超时（任务 ${receipt.jobId}）")
             }
             val snapshot = executeJson(
                 Request.Builder().url(resolveSameOrigin(receipt.statusUrl)).get().build(),
@@ -135,7 +179,7 @@ class CodexTaskClient(
                 JobOutcome.Pending -> {
                     val remainingMillis = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
                     if (remainingMillis <= 0) {
-                        throw CodexTaskException.Timeout("食物识别超时（任务 ${receipt.jobId}）")
+                        throw CodexTaskException.Timeout("${taskLabel}超时（任务 ${receipt.jobId}）")
                     }
                     delay(minOf(polling.intervalMillis, remainingMillis))
                 }
@@ -145,11 +189,11 @@ class CodexTaskClient(
                     outcome.questions,
                 )
                 is JobOutcome.Failed -> throw CodexTaskException.Remote(
-                    "食物识别失败 [${outcome.code}]：${outcome.message}",
+                    "${taskLabel}失败 [${outcome.code}]：${outcome.message}",
                     outcome.code,
                 )
                 is JobOutcome.Cancelled -> throw CodexTaskException.Cancelled(
-                    "食物识别已取消 [${outcome.code}]：${outcome.message}",
+                    "${taskLabel}已取消 [${outcome.code}]：${outcome.message}",
                 )
             }
         }

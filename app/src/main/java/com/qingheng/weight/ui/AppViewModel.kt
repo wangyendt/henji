@@ -8,6 +8,7 @@ import com.qingheng.weight.HengJiApp
 import com.qingheng.weight.data.*
 import com.qingheng.weight.health.HealthPermissionState
 import com.qingheng.weight.health.HealthSyncScheduler
+import com.qingheng.weight.meal.CodexTaskClient
 import com.qingheng.weight.settings.AppSettings
 import com.qingheng.weight.sync.PersonalSyncResult
 import com.qingheng.weight.sync.PersonalSyncScheduler
@@ -20,12 +21,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val meals = app.repository.mealRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val mealFoodItems = app.repository.mealFoodItems.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val foodFrequencies = app.repository.foodFrequencies.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val wellnessRecords = app.repository.wellnessRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val settings = app.settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
     val syncPendingCount = app.personalSync.pendingCount.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val isSaving = MutableStateFlow(false)
     val fitdaysImportState = MutableStateFlow<FitdaysImportState>(FitdaysImportState.Idle)
     val healthSyncState = MutableStateFlow<HealthSyncState>(HealthSyncState.Checking)
     val personalSyncState = MutableStateFlow<PersonalSyncState>(PersonalSyncState.Checking)
+    val healthScreenshotImportState = MutableStateFlow<HealthScreenshotImportState>(HealthScreenshotImportState.Idle)
 
     fun addManualWeight(weight: Double) = viewModelScope.launch {
         val weightKg = settings.value.weightUnit.toKilograms(weight)
@@ -48,6 +51,41 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }.getOrElse { error ->
             FitdaysImportState.Error(error.message ?: "导入失败，请重新从 Fitdays 导出")
         }
+    }
+
+    fun importVivoHealthScreenshot(uri: Uri) = viewModelScope.launch {
+        if (healthScreenshotImportState.value is HealthScreenshotImportState.Analyzing) return@launch
+        val current = app.settings.values.first()
+        if (current.serviceToken.isBlank()) {
+            healthScreenshotImportState.value = HealthScreenshotImportState.Error(
+                "请先到“我的”中填写 CodexTask Service Token",
+            )
+            return@launch
+        }
+        healthScreenshotImportState.value = HealthScreenshotImportState.Analyzing
+        healthScreenshotImportState.value = runCatching {
+            val analysis = CodexTaskClient(current.serviceUrl, current.serviceToken)
+                .analyzeHealthScreenshot(getApplication<Application>().contentResolver, uri)
+            val records = analysis.toRecords()
+            val summary = app.repository.saveWellnessRecords(records)
+            val syncResult = if (current.personalSyncUrl.isNotBlank() && current.personalSyncToken.isNotBlank()) {
+                runCatching { app.personalSync.sync(current.personalSyncUrl, current.personalSyncToken) }
+            } else null
+            if (syncResult?.isFailure == true) PersonalSyncScheduler.enqueueNow(getApplication())
+            HealthScreenshotImportState.Success(
+                summary = summary,
+                records = records,
+                warnings = analysis.warnings,
+                uploaded = syncResult?.isSuccess == true,
+                syncMessage = syncResult?.exceptionOrNull()?.message,
+            )
+        }.getOrElse { error ->
+            HealthScreenshotImportState.Error(error.message ?: "健康截图识别失败，请稍后重试")
+        }
+    }
+
+    fun dismissHealthScreenshotImport() {
+        healthScreenshotImportState.value = HealthScreenshotImportState.Idle
     }
 
     fun healthPermissionsToRequest(): Set<String> = app.healthConnectSync.permissionsToRequest()
@@ -125,6 +163,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         app.repository.deleteMeals(records)
         PersonalSyncScheduler.enqueueNow(getApplication())
     }
+    fun deleteWellness(record: DailyWellnessRecord) = viewModelScope.launch {
+        app.repository.deleteWellness(record)
+        PersonalSyncScheduler.enqueueNow(getApplication())
+    }
     suspend fun saveMeal(record: MealRecord, foodItems: List<MealFoodItem>) {
         app.repository.saveMeal(record, foodItems)
         PersonalSyncScheduler.enqueueNow(getApplication())
@@ -170,4 +212,17 @@ sealed interface PersonalSyncState {
     data object Syncing : PersonalSyncState
     data class Success(val result: PersonalSyncResult) : PersonalSyncState
     data class Error(val message: String) : PersonalSyncState
+}
+
+sealed interface HealthScreenshotImportState {
+    data object Idle : HealthScreenshotImportState
+    data object Analyzing : HealthScreenshotImportState
+    data class Success(
+        val summary: WellnessImportSummary,
+        val records: List<DailyWellnessRecord>,
+        val warnings: List<String>,
+        val uploaded: Boolean,
+        val syncMessage: String?,
+    ) : HealthScreenshotImportState
+    data class Error(val message: String) : HealthScreenshotImportState
 }

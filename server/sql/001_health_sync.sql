@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS health_sync_objects_deleted_dedupe_idx
     WHERE deleted AND dedupe_key IS NOT NULL;
 
 COMMENT ON TABLE health.sync_events IS
-    'Append-only, idempotent device synchronization log. Payload excludes meal photos.';
+    'Append-only, idempotent device synchronization log. Payload excludes meal photos and health screenshots.';
 COMMENT ON TABLE health.sync_objects IS
     'Latest effective health object state; delete rows are retained as tombstones.';
 COMMENT ON COLUMN health.sync_events.submitted_payload IS

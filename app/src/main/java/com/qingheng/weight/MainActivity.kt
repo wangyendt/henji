@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -24,6 +25,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import com.qingheng.weight.ui.*
+import java.time.LocalDate
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<AppViewModel>()
@@ -36,12 +38,21 @@ class MainActivity : ComponentActivity() {
             viewModel.importFitdaysHistory(it)
         }
     }
+    private val healthScreenshotLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importVivoHealthScreenshot)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleSharedFitdaysFile(intent)
+        handleSharedContent(intent)
         setContent {
             HengJiTheme {
-                HengJiRoot(viewModel, ::chooseFitdaysFile, ::openFitdays, ::requestHealthConnectPermissions)
+                HengJiRoot(
+                    viewModel,
+                    ::chooseFitdaysFile,
+                    ::chooseHealthScreenshot,
+                    ::openFitdays,
+                    ::requestHealthConnectPermissions,
+                )
             }
         }
     }
@@ -55,12 +66,14 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleSharedFitdaysFile(intent)
+        handleSharedContent(intent)
     }
 
     private fun chooseFitdaysFile() = fitdaysFileLauncher.launch(
         arrayOf("text/csv", "application/csv", "application/vnd.ms-excel", "application/octet-stream")
     )
+
+    private fun chooseHealthScreenshot() = healthScreenshotLauncher.launch(arrayOf("image/*"))
 
     private fun requestHealthConnectPermissions() {
         val permissions = viewModel.healthPermissionsToRequest()
@@ -80,7 +93,7 @@ class MainActivity : ComponentActivity() {
             .onFailure { Toast.makeText(this, "没有找到 Fitdays，请确认已经安装", Toast.LENGTH_LONG).show() }
     }
 
-    private fun handleSharedFitdaysFile(intent: Intent?) {
+    private fun handleSharedContent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_SEND) return
         val uri = if (Build.VERSION.SDK_INT >= 33) {
             intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
@@ -88,7 +101,15 @@ class MainActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
         }
-        uri?.let(viewModel::importFitdaysHistory)
+        uri ?: return
+        val mimeType = intent.type ?: contentResolver.getType(uri).orEmpty()
+        if (mimeType.startsWith("image/")) {
+            viewModel.importVivoHealthScreenshot(uri)
+        } else {
+            viewModel.importFitdaysHistory(uri)
+        }
+        intent.action = null
+        intent.removeExtra(Intent.EXTRA_STREAM)
     }
 
 }
@@ -113,6 +134,7 @@ private fun NavHostController.openTopLevel(route: String) {
 private fun HengJiRoot(
     vm: AppViewModel,
     chooseFitdaysFile: () -> Unit,
+    chooseHealthScreenshot: () -> Unit,
     openFitdays: () -> Unit,
     requestHealthConnectPermissions: () -> Unit,
 ) {
@@ -143,6 +165,7 @@ private fun HengJiRoot(
                 ImportScreen(
                     vm = vm,
                     chooseFitdaysFile = chooseFitdaysFile,
+                    chooseHealthScreenshot = chooseHealthScreenshot,
                     openFitdays = openFitdays,
                     requestHealthConnectPermissions = requestHealthConnectPermissions,
                 )
@@ -150,5 +173,63 @@ private fun HengJiRoot(
             composable("meals") { MealsScreen(vm) }
             composable("settings") { SettingsScreen(vm) }
         }
+        HealthScreenshotImportDialog(vm)
+    }
+}
+
+@Composable
+private fun HealthScreenshotImportDialog(vm: AppViewModel) {
+    val state by vm.healthScreenshotImportState.collectAsState()
+    when (val current = state) {
+        HealthScreenshotImportState.Idle -> Unit
+        HealthScreenshotImportState.Analyzing -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("正在解析 vivo 健康截图") },
+            text = {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(28.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text("正在识别日期、睡眠、步数和运动数据…")
+                }
+            },
+            confirmButton = {},
+        )
+        is HealthScreenshotImportState.Error -> AlertDialog(
+            onDismissRequest = vm::dismissHealthScreenshotImport,
+            title = { Text("截图导入失败") },
+            text = { Text(current.message) },
+            confirmButton = { TextButton(vm::dismissHealthScreenshotImport) { Text("关闭") } },
+        )
+        is HealthScreenshotImportState.Success -> AlertDialog(
+            onDismissRequest = vm::dismissHealthScreenshotImport,
+            title = { Text("健康数据已录入") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    current.records.forEach { record ->
+                        val parts = buildList {
+                            record.sleepMinutes?.let { add("睡眠 ${it / 60}小时${it % 60}分") }
+                            record.steps?.let { add("${it} 步") }
+                            record.exerciseMinutes?.let { add("运动 ${it} 分钟") }
+                            record.activeCaloriesKcal?.let { add("活动 ${it.toInt()} kcal") }
+                            if (isEmpty()) add(record.screenType)
+                        }
+                        Text("${LocalDate.ofEpochDay(record.dateEpochDay)}  ${parts.joinToString(" · ")}")
+                    }
+                    Text(
+                        when {
+                            current.uploaded -> "结构化数据已自动上传到个人数据库。"
+                            current.syncMessage != null -> "本地已保存，服务器同步已排队：${current.syncMessage}"
+                            else -> "本地已保存；配置个人同步后会自动上传。"
+                        },
+                        color = if (current.uploaded) Emerald else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    current.warnings.takeIf { it.isNotEmpty() }?.let {
+                        Text("识别提示：${it.joinToString("；")}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = { TextButton(vm::dismissHealthScreenshotImport) { Text("完成") } },
+        )
     }
 }

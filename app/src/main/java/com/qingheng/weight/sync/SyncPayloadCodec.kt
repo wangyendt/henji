@@ -2,6 +2,7 @@ package com.qingheng.weight.sync
 
 import com.qingheng.weight.data.MealFoodItem
 import com.qingheng.weight.data.MealRecord
+import com.qingheng.weight.data.DailyWellnessRecord
 import com.qingheng.weight.data.WeightRecord
 import org.json.JSONArray
 import org.json.JSONObject
@@ -9,6 +10,7 @@ import org.json.JSONObject
 object SyncPayloadCodec {
     const val WEIGHT = "weight_record"
     const val MEAL = "meal_record"
+    const val WELLNESS = "daily_wellness_record"
     const val SCHEMA_VERSION = 1
 
     fun encode(record: WeightRecord): String = JSONObject().apply {
@@ -132,6 +134,60 @@ object SyncPayloadCodec {
         return record to foods
     }
 
+    fun encode(record: DailyWellnessRecord): String = JSONObject().apply {
+        put("dateEpochDay", record.dateEpochDay)
+        put("updatedAt", record.updatedAt)
+        put("source", record.source)
+        put("screenType", record.screenType)
+        putNullable("sleepStartAt", record.sleepStartAt)
+        putNullable("sleepEndAt", record.sleepEndAt)
+        putNullable("sleepMinutes", record.sleepMinutes)
+        putNullable("deepSleepMinutes", record.deepSleepMinutes)
+        putNullable("lightSleepMinutes", record.lightSleepMinutes)
+        putNullable("remSleepMinutes", record.remSleepMinutes)
+        putNullable("awakeMinutes", record.awakeMinutes)
+        putNullable("sleepScore", record.sleepScore)
+        putNullable("steps", record.steps)
+        putNullable("distanceMeters", record.distanceMeters)
+        putNullable("activeCaloriesKcal", record.activeCaloriesKcal)
+        putNullable("exerciseMinutes", record.exerciseMinutes)
+        putNullable("exerciseCaloriesKcal", record.exerciseCaloriesKcal)
+        putNullable("restingHeartRateBpm", record.restingHeartRateBpm)
+        putNullable("averageHeartRateBpm", record.averageHeartRateBpm)
+        put("workouts", runCatching { JSONArray(record.workoutsJson) }.getOrDefault(JSONArray()))
+        put("confidence", record.confidence)
+        putNullable("rawAnalysis", record.rawAnalysis)
+    }.toString()
+
+    fun decodeWellness(entityId: String, payloadJson: String): DailyWellnessRecord {
+        val json = JSONObject(payloadJson)
+        return DailyWellnessRecord(
+            id = entityId,
+            dateEpochDay = json.getLong("dateEpochDay"),
+            updatedAt = json.getLong("updatedAt"),
+            source = json.optString("source", "vivo_health_screenshot"),
+            screenType = json.optString("screenType", "未知"),
+            sleepStartAt = json.nullableLong("sleepStartAt"),
+            sleepEndAt = json.nullableLong("sleepEndAt"),
+            sleepMinutes = json.nullableInt("sleepMinutes"),
+            deepSleepMinutes = json.nullableInt("deepSleepMinutes"),
+            lightSleepMinutes = json.nullableInt("lightSleepMinutes"),
+            remSleepMinutes = json.nullableInt("remSleepMinutes"),
+            awakeMinutes = json.nullableInt("awakeMinutes"),
+            sleepScore = json.nullableDouble("sleepScore"),
+            steps = json.nullableLong("steps"),
+            distanceMeters = json.nullableDouble("distanceMeters"),
+            activeCaloriesKcal = json.nullableDouble("activeCaloriesKcal"),
+            exerciseMinutes = json.nullableInt("exerciseMinutes"),
+            exerciseCaloriesKcal = json.nullableDouble("exerciseCaloriesKcal"),
+            restingHeartRateBpm = json.nullableDouble("restingHeartRateBpm"),
+            averageHeartRateBpm = json.nullableDouble("averageHeartRateBpm"),
+            workoutsJson = json.optJSONArray("workouts")?.toString() ?: "[]",
+            confidence = json.optDouble("confidence", 0.5),
+            rawAnalysis = json.nullableString("rawAnalysis"),
+        )
+    }
+
     private fun JSONObject.putNullable(name: String, value: Any?) {
         put(name, value ?: JSONObject.NULL)
     }
@@ -144,4 +200,7 @@ object SyncPayloadCodec {
 
     private fun JSONObject.nullableInt(name: String): Int? =
         if (!has(name) || isNull(name)) null else getInt(name)
+
+    private fun JSONObject.nullableLong(name: String): Long? =
+        if (!has(name) || isNull(name)) null else getLong(name)
 }

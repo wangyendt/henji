@@ -72,6 +72,39 @@ data class MealFoodItem(
 )
 
 @Entity(
+    tableName = "daily_wellness_records",
+    indices = [
+        Index(value = ["source", "dateEpochDay"], unique = true),
+        Index("dateEpochDay"),
+    ],
+)
+data class DailyWellnessRecord(
+    @PrimaryKey val id: String,
+    val dateEpochDay: Long,
+    val updatedAt: Long,
+    val source: String,
+    val screenType: String,
+    val sleepStartAt: Long? = null,
+    val sleepEndAt: Long? = null,
+    val sleepMinutes: Int? = null,
+    val deepSleepMinutes: Int? = null,
+    val lightSleepMinutes: Int? = null,
+    val remSleepMinutes: Int? = null,
+    val awakeMinutes: Int? = null,
+    val sleepScore: Double? = null,
+    val steps: Long? = null,
+    val distanceMeters: Double? = null,
+    val activeCaloriesKcal: Double? = null,
+    val exerciseMinutes: Int? = null,
+    val exerciseCaloriesKcal: Double? = null,
+    val restingHeartRateBpm: Double? = null,
+    val averageHeartRateBpm: Double? = null,
+    val workoutsJson: String = "[]",
+    val confidence: Double,
+    val rawAnalysis: String? = null,
+)
+
+@Entity(
     tableName = "sync_outbox",
     indices = [Index(value = ["entityType", "entityId"], unique = true), Index("createdAt")],
 )

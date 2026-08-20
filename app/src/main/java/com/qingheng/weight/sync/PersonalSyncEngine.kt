@@ -108,6 +108,20 @@ class PersonalSyncEngine(private val database: AppDatabase) {
                     )
                 }
             }
+            database.wellnessDao().allForSync().forEach { wellness ->
+                if (database.syncDao().tombstone(SyncPayloadCodec.WELLNESS, wellness.id) == null) {
+                    database.syncDao().enqueue(
+                        SyncOutboxEvent(
+                            eventId = UUID.randomUUID().toString(),
+                            entityType = SyncPayloadCodec.WELLNESS,
+                            entityId = wellness.id,
+                            operation = "upsert",
+                            occurredAt = System.currentTimeMillis(),
+                            payloadJson = SyncPayloadCodec.encode(wellness),
+                        ),
+                    )
+                }
+            }
             database.syncDao().putMetadata(current.copy(initialized = true))
         }
     }
@@ -118,6 +132,7 @@ class PersonalSyncEngine(private val database: AppDatabase) {
                 event.schemaVersion != SyncPayloadCodec.SCHEMA_VERSION -> defer(event)
                 event.entityType == SyncPayloadCodec.WEIGHT -> applyWeight(event)
                 event.entityType == SyncPayloadCodec.MEAL -> applyMeal(event)
+                event.entityType == SyncPayloadCodec.WELLNESS -> applyWellness(event)
                 else -> defer(event)
             }
         }
@@ -148,6 +163,18 @@ class PersonalSyncEngine(private val database: AppDatabase) {
         val localImage = database.mealDao().findById(event.entityId)?.imageUri
         val (meal, foods) = SyncPayloadCodec.decodeMeal(event.entityId, event.payloadJson, localImage)
         database.mealDao().insert(meal, foods)
+    }
+
+    private suspend fun applyWellness(event: CloudSyncEvent) {
+        if (event.operation == "delete") {
+            deleteLocally(event, SyncPayloadCodec.WELLNESS) {
+                database.wellnessDao().deleteById(event.entityId)
+            }
+            return
+        }
+        if (database.syncDao().tombstone(SyncPayloadCodec.WELLNESS, event.entityId) != null) return
+        if (database.syncDao().pendingForEntity(SyncPayloadCodec.WELLNESS, event.entityId) != null) return
+        database.wellnessDao().insert(SyncPayloadCodec.decodeWellness(event.entityId, event.payloadJson))
     }
 
     private suspend fun deleteLocally(
