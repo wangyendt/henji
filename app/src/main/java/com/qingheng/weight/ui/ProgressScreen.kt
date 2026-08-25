@@ -3,6 +3,7 @@ package com.qingheng.weight.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +31,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -163,6 +165,11 @@ private fun TrendCard(
     val latest = points.lastOrNull()
     val change = if (first != null && latest != null && first != latest) latest.value - first.value else null
     val trend = remember(points) { robustLinearTrend(points) }
+    var selectedDay by rememberSaveable(metric.name) { mutableStateOf<Long?>(null) }
+    val selectedPoint = points.firstOrNull { it.date.toEpochDay() == selectedDay }
+    LaunchedEffect(points) {
+        if (selectedDay != null && selectedPoint == null) selectedDay = null
+    }
     Card(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
         shape = RoundedCornerShape(22.dp),
@@ -210,8 +217,25 @@ private fun TrendCard(
                     }
                 }
             } else {
-                MetricTrendChart(points, trend, Modifier.fillMaxWidth().height(170.dp))
+                MetricTrendChart(
+                    points = points,
+                    trend = trend,
+                    selectedPoint = selectedPoint,
+                    onPointSelected = { point ->
+                        selectedDay = point?.date?.toEpochDay()?.takeUnless { it == selectedDay }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(170.dp),
+                )
                 TrendLegend(trend, metric, unit)
+                selectedPoint?.let { point ->
+                    SelectedMetricPoint(
+                        point = point,
+                        metric = metric,
+                        unit = unit,
+                        hideAbsoluteWeight = hideAbsoluteWeight,
+                        earliestWeightKg = earliestWeightKg,
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth()) {
                     Text(
@@ -220,6 +244,14 @@ private fun TrendCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.weight(1f))
+                    if (points.isNotEmpty() && selectedPoint == null) {
+                        Text(
+                            "轻触数据点查看",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.weight(1f))
+                    }
                     Text(
                         points.lastOrNull()?.date?.format(shortDateFormatter) ?: "--",
                         style = MaterialTheme.typography.labelSmall,
@@ -244,35 +276,40 @@ private fun TrendCard(
 private fun MetricTrendChart(
     points: List<DailyMetricPoint>,
     trend: MetricTrendLine?,
+    selectedPoint: DailyMetricPoint?,
+    onPointSelected: (DailyMetricPoint?) -> Unit,
     modifier: Modifier,
 ) {
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
-    Canvas(modifier) {
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val scale = remember(points, trend) { metricChartScale(points, trend) }
+    Canvas(
+        modifier.pointerInput(points, trend, selectedPoint) {
+            detectTapGestures { tap ->
+                val currentScale = scale ?: return@detectTapGestures
+                val nearest = points.minByOrNull { point ->
+                    val offset = currentScale.coordinate(point.date, point.value, size.width.toFloat(), size.height.toFloat())
+                    val dx = tap.x - offset.x
+                    val dy = tap.y - offset.y
+                    dx * dx + dy * dy
+                }
+                val nearestOffset = nearest?.let {
+                    currentScale.coordinate(it.date, it.value, size.width.toFloat(), size.height.toFloat())
+                }
+                val hitRadius = 32.dp.toPx()
+                val hit = nearest != null && nearestOffset != null &&
+                    (tap - nearestOffset).getDistanceSquared() <= hitRadius * hitRadius
+                onPointSelected(nearest.takeIf { hit })
+            }
+        },
+    ) {
         repeat(4) { index ->
             val y = size.height * index / 3f
             drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 1f)
         }
-        if (points.isEmpty()) return@Canvas
-        val chartValues = buildList {
-            addAll(points.map(DailyMetricPoint::value))
-            trend?.let {
-                add(it.startValue)
-                add(it.endValue)
-            }
-        }
-        val rawMin = chartValues.minOrNull()!!
-        val rawMax = chartValues.maxOrNull()!!
-        val padding = ((rawMax - rawMin) * 0.12).coerceAtLeast(0.15)
-        val minimum = rawMin - padding
-        val span = (rawMax + padding - minimum).coerceAtLeast(0.3)
-        val firstDay = points.first().date.toEpochDay()
-        val daySpan = (points.last().date.toEpochDay() - firstDay).coerceAtLeast(1L)
+        val currentScale = scale ?: return@Canvas
         fun coordinate(date: LocalDate, value: Double): Offset {
-            val x = if (points.size == 1) size.width / 2f else {
-                size.width * (date.toEpochDay() - firstDay).toFloat() / daySpan
-            }
-            val y = size.height * (1f - ((value - minimum) / span).toFloat())
-            return Offset(x, y)
+            return currentScale.coordinate(date, value, size.width, size.height)
         }
 
         if (points.size > 1) {
@@ -305,6 +342,89 @@ private fun MetricTrendChart(
                     cap = StrokeCap.Round,
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 11f)),
                 ),
+            )
+        }
+        selectedPoint?.let { point ->
+            val offset = coordinate(point.date, point.value)
+            drawLine(
+                Amber.copy(alpha = 0.24f),
+                Offset(offset.x, 0f),
+                Offset(offset.x, size.height),
+                2f,
+            )
+            drawCircle(surfaceColor, 13f, offset)
+            drawCircle(Amber, 11f, offset, style = Stroke(width = 5f))
+        }
+    }
+}
+
+private data class MetricChartScale(
+    val minimum: Double,
+    val span: Double,
+    val firstDay: Long,
+    val daySpan: Long,
+    val singlePoint: Boolean,
+) {
+    fun coordinate(date: LocalDate, value: Double, width: Float, height: Float): Offset {
+        val x = if (singlePoint) width / 2f
+        else width * (date.toEpochDay() - firstDay).toFloat() / daySpan
+        val y = height * (1f - ((value - minimum) / span).toFloat())
+        return Offset(x, y)
+    }
+}
+
+private fun metricChartScale(
+    points: List<DailyMetricPoint>,
+    trend: MetricTrendLine?,
+): MetricChartScale? {
+    if (points.isEmpty()) return null
+    val values = buildList {
+        addAll(points.map(DailyMetricPoint::value))
+        trend?.let {
+            add(it.startValue)
+            add(it.endValue)
+        }
+    }
+    val rawMin = values.minOrNull() ?: return null
+    val rawMax = values.maxOrNull() ?: return null
+    val padding = ((rawMax - rawMin) * 0.12).coerceAtLeast(0.15)
+    val minimum = rawMin - padding
+    return MetricChartScale(
+        minimum = minimum,
+        span = (rawMax + padding - minimum).coerceAtLeast(0.3),
+        firstDay = points.first().date.toEpochDay(),
+        daySpan = (points.last().date.toEpochDay() - points.first().date.toEpochDay()).coerceAtLeast(1L),
+        singlePoint = points.size == 1,
+    )
+}
+
+@Composable
+private fun SelectedMetricPoint(
+    point: DailyMetricPoint,
+    metric: TrendMetric,
+    unit: WeightUnit,
+    hideAbsoluteWeight: Boolean,
+    earliestWeightKg: Double?,
+) {
+    Surface(
+        Modifier.fillMaxWidth().padding(top = 10.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                point.date.format(selectedPointDateFormatter),
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                metric.format(point.value, unit, hideAbsoluteWeight, earliestWeightKg),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
             )
         }
     }
@@ -892,4 +1012,5 @@ private fun heatColor(level: Float): Color = lerp(
 )
 
 private val shortDateFormatter = DateTimeFormatter.ofPattern("M/d", Locale.CHINA)
+private val selectedPointDateFormatter = DateTimeFormatter.ofPattern("M月d日 E", Locale.CHINA)
 private val monthFormatter = DateTimeFormatter.ofPattern("yyyy年 M月", Locale.CHINA)
