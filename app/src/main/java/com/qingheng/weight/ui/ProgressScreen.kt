@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
@@ -161,6 +162,7 @@ private fun TrendCard(
     val first = points.firstOrNull()
     val latest = points.lastOrNull()
     val change = if (first != null && latest != null && first != latest) latest.value - first.value else null
+    val trend = remember(points) { robustLinearTrend(points) }
     Card(
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
         shape = RoundedCornerShape(22.dp),
@@ -208,7 +210,8 @@ private fun TrendCard(
                     }
                 }
             } else {
-                MetricTrendChart(points, Modifier.fillMaxWidth().height(170.dp))
+                MetricTrendChart(points, trend, Modifier.fillMaxWidth().height(170.dp))
+                TrendLegend(trend, metric, unit)
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth()) {
                     Text(
@@ -238,7 +241,11 @@ private fun TrendCard(
 }
 
 @Composable
-private fun MetricTrendChart(points: List<DailyMetricPoint>, modifier: Modifier) {
+private fun MetricTrendChart(
+    points: List<DailyMetricPoint>,
+    trend: MetricTrendLine?,
+    modifier: Modifier,
+) {
     val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
     Canvas(modifier) {
         repeat(4) { index ->
@@ -246,16 +253,23 @@ private fun MetricTrendChart(points: List<DailyMetricPoint>, modifier: Modifier)
             drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 1f)
         }
         if (points.isEmpty()) return@Canvas
-        val rawMin = points.minOf { it.value }
-        val rawMax = points.maxOf { it.value }
+        val chartValues = buildList {
+            addAll(points.map(DailyMetricPoint::value))
+            trend?.let {
+                add(it.startValue)
+                add(it.endValue)
+            }
+        }
+        val rawMin = chartValues.minOrNull()!!
+        val rawMax = chartValues.maxOrNull()!!
         val padding = ((rawMax - rawMin) * 0.12).coerceAtLeast(0.15)
         val minimum = rawMin - padding
         val span = (rawMax + padding - minimum).coerceAtLeast(0.3)
         val firstDay = points.first().date.toEpochDay()
         val daySpan = (points.last().date.toEpochDay() - firstDay).coerceAtLeast(1L)
-        fun coordinate(index: Int, value: Double): Offset {
+        fun coordinate(date: LocalDate, value: Double): Offset {
             val x = if (points.size == 1) size.width / 2f else {
-                size.width * (points[index].date.toEpochDay() - firstDay).toFloat() / daySpan
+                size.width * (date.toEpochDay() - firstDay).toFloat() / daySpan
             }
             val y = size.height * (1f - ((value - minimum) / span).toFloat())
             return Offset(x, y)
@@ -264,14 +278,75 @@ private fun MetricTrendChart(points: List<DailyMetricPoint>, modifier: Modifier)
         if (points.size > 1) {
             val path = Path()
             points.forEachIndexed { index, point ->
-                val offset = coordinate(index, point.value)
+                val offset = coordinate(point.date, point.value)
                 if (index == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
             }
-            drawPath(path, Emerald, style = Stroke(width = 7f, cap = StrokeCap.Round))
+            drawPath(
+                path,
+                Emerald.copy(alpha = 0.38f),
+                style = Stroke(width = 5f, cap = StrokeCap.Round),
+            )
         }
-        points.forEachIndexed { index, point ->
-            drawCircle(Emerald, 7f, coordinate(index, point.value))
+        points.forEach { point ->
+            drawCircle(Emerald.copy(alpha = 0.72f), 6f, coordinate(point.date, point.value))
         }
+        trend?.let {
+            val path = Path().apply {
+                val start = coordinate(it.startDate, it.startValue)
+                val end = coordinate(it.endDate, it.endValue)
+                moveTo(start.x, start.y)
+                lineTo(end.x, end.y)
+            }
+            drawPath(
+                path,
+                Amber,
+                style = Stroke(
+                    width = 7f,
+                    cap = StrokeCap.Round,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(20f, 11f)),
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrendLegend(
+    trend: MetricTrendLine?,
+    metric: TrendMetric,
+    unit: WeightUnit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        ChartLegendItem(Emerald.copy(alpha = 0.55f), "每日值")
+        if (trend != null) {
+            ChartLegendItem(Amber, "稳健趋势")
+            Spacer(Modifier.weight(1f))
+            Text(
+                "区间 ${trend.change.signed(metric, unit)}",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChartLegendItem(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .width(18.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(color),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
