@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -37,6 +38,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.qingheng.weight.data.*
+import com.qingheng.weight.share.DailyMealsShareCard
+import com.qingheng.weight.share.DailyWorkoutsShareCard
+import com.qingheng.weight.share.MealShareEntry
+import com.qingheng.weight.share.ShareCardContent
+import com.qingheng.weight.share.ShareTrendPoint
+import com.qingheng.weight.share.TrendShareCard
+import com.qingheng.weight.share.WorkoutShareEntry
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -56,7 +64,7 @@ private val rangeOptions = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun ProgressScreen(vm: AppViewModel) {
+fun ProgressScreen(vm: AppViewModel, shareCard: (ShareCardContent) -> Unit = {}) {
     val all by vm.weights.collectAsState()
     val meals by vm.meals.collectAsState()
     val workouts by vm.workoutRecords.collectAsState()
@@ -117,7 +125,15 @@ fun ProgressScreen(vm: AppViewModel) {
                     ) { Text(option.title) }
                 }
             }
-            TrendCard(metric, points, unit, settings.hideAbsoluteWeight, earliestKg)
+            TrendCard(
+                metric = metric,
+                points = points,
+                unit = unit,
+                hideAbsoluteWeight = settings.hideAbsoluteWeight,
+                earliestWeightKg = earliestKg,
+                rangeTitle = rangeOptions[rangeIndex].title,
+                shareCard = shareCard,
+            )
             DailyRuleNote()
             MeasurementCalendar(
                 history = history,
@@ -129,6 +145,7 @@ fun ProgressScreen(vm: AppViewModel) {
                 delete = vm::deleteWeight,
                 onOpenMeal = { selectedMealId = it.id },
                 deleteWorkout = vm::deleteWorkout,
+                shareCard = shareCard,
             )
         }
         if (all.isEmpty()) {
@@ -159,12 +176,43 @@ private fun TrendCard(
     unit: WeightUnit,
     hideAbsoluteWeight: Boolean,
     earliestWeightKg: Double?,
+    rangeTitle: String,
+    shareCard: (ShareCardContent) -> Unit,
 ) {
     val metricHidden = hideAbsoluteWeight && metric.hideInPrivacyMode
     val first = points.firstOrNull()
     val latest = points.lastOrNull()
     val change = if (first != null && latest != null && first != latest) latest.value - first.value else null
     val trend = remember(points) { robustLinearTrend(points) }
+    val shareContent = remember(
+        metric,
+        points,
+        unit,
+        hideAbsoluteWeight,
+        earliestWeightKg,
+        rangeTitle,
+        change,
+        trend,
+    ) {
+        TrendShareCard(
+            metricTitle = if (metric == TrendMetric.WEIGHT && hideAbsoluteWeight) "相对体重" else metric.title,
+            rangeTitle = "$rangeTitle · ${points.size} 个有数据的日期",
+            points = points.map { point ->
+                ShareTrendPoint(
+                    label = point.date.format(shortDateFormatter),
+                    epochDay = point.date.toEpochDay(),
+                    value = if (metric == TrendMetric.WEIGHT && hideAbsoluteWeight && earliestWeightKg != null) {
+                        point.value - earliestWeightKg
+                    } else point.value,
+                )
+            },
+            latestValue = latest?.let {
+                metric.format(it.value, unit, hideAbsoluteWeight, earliestWeightKg)
+            } ?: "--",
+            changeValue = change?.signed(metric, unit),
+            trendValue = trend?.change?.signed(metric, unit),
+        )
+    }
     var selectedDay by rememberSaveable(metric.name) { mutableStateOf<Long?>(null) }
     val selectedPoint = points.firstOrNull { it.date.toEpochDay() == selectedDay }
     LaunchedEffect(points) {
@@ -175,7 +223,7 @@ private fun TrendCard(
         shape = RoundedCornerShape(22.dp),
     ) {
         Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.Bottom) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         if (metric == TrendMetric.WEIGHT && hideAbsoluteWeight) "体重（相对最早）" else metric.title,
@@ -186,6 +234,12 @@ private fun TrendCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                IconButton(
+                    onClick = { shareCard(shareContent) },
+                    enabled = points.isNotEmpty() && !metricHidden,
+                ) {
+                    Icon(Icons.Outlined.Share, "分享${metric.title}趋势")
                 }
                 if (metricHidden) {
                     Text(
@@ -499,6 +553,7 @@ private fun MeasurementCalendar(
     delete: (WeightRecord) -> Unit,
     onOpenMeal: (MealRecord) -> Unit,
     deleteWorkout: (WorkoutRecord) -> Unit,
+    shareCard: (ShareCardContent) -> Unit,
 ) {
     val latestDate = listOfNotNull(
         history.firstOrNull()?.date,
@@ -582,9 +637,9 @@ private fun MeasurementCalendar(
                 Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
                 fontWeight = FontWeight.Bold,
             )
-            DayMealSummary(selectedMeals, onOpenMeal)
+            DayMealSummary(selectedDate, selectedMeals, onOpenMeal, shareCard)
             HorizontalDivider()
-            DayWorkoutSummary(selectedWorkouts, deleteWorkout)
+            DayWorkoutSummary(selectedDate, selectedWorkouts, deleteWorkout, shareCard)
             HorizontalDivider()
             Text(
                 "称重记录",
@@ -742,9 +797,24 @@ private fun CalendarDay(
 }
 
 @Composable
-private fun DayWorkoutSummary(workouts: List<WorkoutRecord>, delete: (WorkoutRecord) -> Unit) {
+private fun DayWorkoutSummary(
+    date: LocalDate,
+    workouts: List<WorkoutRecord>,
+    delete: (WorkoutRecord) -> Unit,
+    shareCard: (ShareCardContent) -> Unit,
+) {
     Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-        Text("运动记录", fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("运动记录", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+            TextButton(
+                onClick = { shareCard(workouts.toShareCard(date)) },
+                enabled = workouts.isNotEmpty(),
+            ) {
+                Icon(Icons.Outlined.Share, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("分享")
+            }
+        }
         if (workouts.isEmpty()) {
             Text(
                 "这一天没有运动记录",
@@ -814,9 +884,24 @@ private fun WorkoutSummaryRow(workout: WorkoutRecord, delete: (WorkoutRecord) ->
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-private fun DayMealSummary(summary: DailyMealSummary?, onOpenMeal: (MealRecord) -> Unit) {
+private fun DayMealSummary(
+    date: LocalDate,
+    summary: DailyMealSummary?,
+    onOpenMeal: (MealRecord) -> Unit,
+    shareCard: (ShareCardContent) -> Unit,
+) {
     Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-        Text("饮食汇总", fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("饮食汇总", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+            TextButton(
+                onClick = { summary?.let { shareCard(it.toShareCard(date)) } },
+                enabled = summary != null,
+            ) {
+                Icon(Icons.Outlined.Share, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("分享")
+            }
+        }
         if (summary == null) {
             Text(
                 "这一天没有饮食记录",
@@ -1005,6 +1090,53 @@ private fun Double.signed(metric: TrendMetric, weightUnit: WeightUnit): String =
     if (metric.isMass) weightUnit.signedWeightFromKg(this)
     else "${if (this > 0) "+" else ""}${metric.format(this, weightUnit)}"
 
+private fun DailyMealSummary.toShareCard(date: LocalDate) = DailyMealsShareCard(
+    dateTitle = date.format(shareDateFormatter),
+    calorieRange = calorieRange(calorieLow, calorieHigh),
+    entries = meals.map { entry ->
+        MealShareEntry(
+            mealTypeAndTime = "${entry.meal.mealType} · ${entry.meal.createdAt.asDate("HH:mm")}",
+            foods = entry.meal.foodNames,
+            calories = calorieRange(entry.meal.calorieLow, entry.meal.calorieHigh),
+        )
+    },
+)
+
+private fun List<WorkoutRecord>.toShareCard(date: LocalDate) = DailyWorkoutsShareCard(
+    dateTitle = date.format(shareDateFormatter),
+    totalCalories = mapNotNull(WorkoutRecord::caloriesKcal).takeIf { it.isNotEmpty() }
+        ?.sum()?.roundToInt()?.toString(),
+    entries = sortedBy(WorkoutRecord::startAt).map { workout ->
+        WorkoutShareEntry(
+            title = workout.workoutType,
+            time = workout.startAt.asDate("HH:mm"),
+            summary = buildList {
+                workout.durationSeconds?.let { add("${it / 60} 分钟") }
+                workout.distanceMeters?.let {
+                    add(if (it >= 1_000) "${"%.1f".format(it / 1_000)} km" else "${it.roundToInt()} m")
+                }
+                workout.caloriesKcal?.let { add("${it.roundToInt()} kcal") }
+            }.joinToString(" · "),
+            details = if (workout.workoutCategory == "swimming") {
+                listOfNotNull(
+                    workout.lengths?.let { "$it 趟" },
+                    workout.strokes?.let { "$it 次划水" },
+                    workout.averageSwolf?.let { "SWOLF ${it.roundToInt()}" },
+                ).joinToString(" · ").ifEmpty { null }
+            } else {
+                listOfNotNull(
+                    workout.averagePaceSecondsPerKm?.let {
+                        val total = it.roundToInt()
+                        "配速 ${total / 60}'${(total % 60).toString().padStart(2, '0')}\"/km"
+                    },
+                    workout.averageHeartRateBpm?.let { "心率 ${it.roundToInt()}" },
+                    workout.steps?.let { "$it 步" },
+                ).joinToString(" · ").ifEmpty { null }
+            },
+        )
+    },
+)
+
 private fun heatColor(level: Float): Color = lerp(
     Color(0xFFDDF4EA),
     Color(0xFF087A56),
@@ -1014,3 +1146,4 @@ private fun heatColor(level: Float): Color = lerp(
 private val shortDateFormatter = DateTimeFormatter.ofPattern("M/d", Locale.CHINA)
 private val selectedPointDateFormatter = DateTimeFormatter.ofPattern("M月d日 E", Locale.CHINA)
 private val monthFormatter = DateTimeFormatter.ofPattern("yyyy年 M月", Locale.CHINA)
+private val shareDateFormatter = DateTimeFormatter.ofPattern("yyyy年M月d日 E", Locale.CHINA)

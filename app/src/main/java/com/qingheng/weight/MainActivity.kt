@@ -1,6 +1,7 @@
 package com.qingheng.weight
 
 import android.content.ComponentName
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -10,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.health.connect.client.PermissionController
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -25,6 +27,11 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import com.qingheng.weight.ui.*
+import com.qingheng.weight.share.ShareCardContent
+import com.qingheng.weight.share.ShareCardRenderer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<AppViewModel>()
@@ -42,7 +49,9 @@ class MainActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleSharedContent(intent)
+        // A task restored after process death can retain its original ACTION_SEND intent.
+        // Only a fresh activity launch represents a new share; restored UI state must not replay it.
+        if (savedInstanceState == null) handleSharedContent(intent) else clearSharedContent(intent)
         setContent {
             HengJiTheme {
                 HengJiRoot(
@@ -51,6 +60,7 @@ class MainActivity : ComponentActivity() {
                     ::chooseHealthScreenshot,
                     ::openFitdays,
                     ::requestHealthConnectPermissions,
+                    ::shareCard,
                 )
             }
         }
@@ -107,8 +117,39 @@ class MainActivity : ComponentActivity() {
         } else {
             viewModel.importFitdaysHistory(uri)
         }
+        clearSharedContent(intent)
+    }
+
+    private fun clearSharedContent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
         intent.action = null
         intent.removeExtra(Intent.EXTRA_STREAM)
+    }
+
+    private fun shareCard(content: ShareCardContent) {
+        lifecycleScope.launch {
+            val uri = runCatching {
+                withContext(Dispatchers.IO) { ShareCardRenderer(this@MainActivity).render(content) }
+            }.getOrElse { error ->
+                Toast.makeText(
+                    this@MainActivity,
+                    error.message ?: "生成分享图片失败",
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
+            }
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, content.shareText)
+                clipData = ClipData.newUri(contentResolver, content.shareText, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(shareIntent, "分享到微信、朋友圈或抖音").apply {
+                putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(componentName))
+            }
+            startActivity(chooser)
+        }
     }
 
 }
@@ -136,6 +177,7 @@ private fun HengJiRoot(
     chooseHealthScreenshot: () -> Unit,
     openFitdays: () -> Unit,
     requestHealthConnectPermissions: () -> Unit,
+    shareCard: (ShareCardContent) -> Unit,
 ) {
     val nav = rememberNavController()
     val destinations = listOf(
@@ -159,7 +201,7 @@ private fun HengJiRoot(
     ) { padding ->
         NavHost(nav, startDestination = HOME_ROUTE, modifier = Modifier.padding(padding)) {
             composable(HOME_ROUTE) { DashboardScreen(vm, { nav.openTopLevel("import") }, { nav.openTopLevel("meals") }) }
-            composable("progress") { ProgressScreen(vm) }
+            composable("progress") { ProgressScreen(vm, shareCard) }
             composable("import") {
                 ImportScreen(
                     vm = vm,
@@ -181,6 +223,12 @@ private fun HealthScreenshotImportDialog(vm: AppViewModel) {
     val state by vm.healthScreenshotImportState.collectAsState()
     when (val current = state) {
         HealthScreenshotImportState.Idle -> Unit
+        HealthScreenshotImportState.Duplicate -> AlertDialog(
+            onDismissRequest = vm::dismissHealthScreenshotImport,
+            title = { Text("运动截图已导入") },
+            text = { Text("这张截图之前已经成功导入，不再重复上传和解析。") },
+            confirmButton = { TextButton(vm::dismissHealthScreenshotImport) { Text("知道了") } },
+        )
         HealthScreenshotImportState.Analyzing -> AlertDialog(
             onDismissRequest = {},
             title = { Text("正在解析 vivo 健康运动图") },

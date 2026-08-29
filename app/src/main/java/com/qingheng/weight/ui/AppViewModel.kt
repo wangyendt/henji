@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.qingheng.weight.HengJiApp
 import com.qingheng.weight.data.*
 import com.qingheng.weight.health.HealthPermissionState
+import com.qingheng.weight.health.HealthScreenshotImportLedger
 import com.qingheng.weight.health.HealthSyncScheduler
 import com.qingheng.weight.meal.CodexTaskClient
 import com.qingheng.weight.settings.AppSettings
@@ -14,9 +15,13 @@ import com.qingheng.weight.sync.PersonalSyncResult
 import com.qingheng.weight.sync.PersonalSyncScheduler
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as HengJiApp
+    private val healthScreenshotImportLedger = HealthScreenshotImportLedger(application)
+    private val healthScreenshotImportMutex = Mutex()
     val weights = app.repository.weightRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val meals = app.repository.mealRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val mealFoodItems = app.repository.mealFoodItems.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -54,33 +59,47 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun importVivoHealthScreenshot(uri: Uri) = viewModelScope.launch {
-        if (healthScreenshotImportState.value is HealthScreenshotImportState.Analyzing) return@launch
-        val current = app.settings.values.first()
-        if (current.serviceToken.isBlank()) {
-            healthScreenshotImportState.value = HealthScreenshotImportState.Error(
-                "请先到“我的”中填写 CodexTask Service Token",
-            )
-            return@launch
-        }
-        healthScreenshotImportState.value = HealthScreenshotImportState.Analyzing
-        healthScreenshotImportState.value = runCatching {
-            val analysis = CodexTaskClient(current.serviceUrl, current.serviceToken)
-                .analyzeHealthScreenshot(getApplication<Application>().contentResolver, uri)
-            val records = analysis.toRecords()
-            val summary = app.repository.saveWorkoutRecords(records)
-            val syncResult = if (current.personalSyncUrl.isNotBlank() && current.personalSyncToken.isNotBlank()) {
-                runCatching { app.personalSync.sync(current.personalSyncUrl, current.personalSyncToken) }
-            } else null
-            if (syncResult?.isFailure == true) PersonalSyncScheduler.enqueueNow(getApplication())
-            HealthScreenshotImportState.Success(
-                summary = summary,
-                records = records,
-                warnings = analysis.warnings,
-                uploaded = syncResult?.isSuccess == true,
-                syncMessage = syncResult?.exceptionOrNull()?.message,
-            )
-        }.getOrElse { error ->
-            HealthScreenshotImportState.Error(error.message ?: "运动详情识别失败，请稍后重试")
+        healthScreenshotImportMutex.withLock {
+            val resolver = getApplication<Application>().contentResolver
+            val fingerprint = runCatching { healthScreenshotImportLedger.fingerprint(resolver, uri) }
+                .getOrElse { error ->
+                    healthScreenshotImportState.value = HealthScreenshotImportState.Error(
+                        error.message ?: "读取运动详情分享图失败",
+                    )
+                    return@withLock
+                }
+            if (healthScreenshotImportLedger.wasImported(fingerprint)) {
+                healthScreenshotImportState.value = HealthScreenshotImportState.Duplicate
+                return@withLock
+            }
+            val current = app.settings.values.first()
+            if (current.serviceToken.isBlank()) {
+                healthScreenshotImportState.value = HealthScreenshotImportState.Error(
+                    "请先到“我的”中填写 CodexTask Service Token",
+                )
+                return@withLock
+            }
+            healthScreenshotImportState.value = HealthScreenshotImportState.Analyzing
+            healthScreenshotImportState.value = runCatching {
+                val analysis = CodexTaskClient(current.serviceUrl, current.serviceToken)
+                    .analyzeHealthScreenshot(resolver, uri)
+                val records = analysis.toRecords()
+                val summary = app.repository.saveWorkoutRecords(records)
+                healthScreenshotImportLedger.markImported(fingerprint)
+                val syncResult = if (current.personalSyncUrl.isNotBlank() && current.personalSyncToken.isNotBlank()) {
+                    runCatching { app.personalSync.sync(current.personalSyncUrl, current.personalSyncToken) }
+                } else null
+                if (syncResult?.isFailure == true) PersonalSyncScheduler.enqueueNow(getApplication())
+                HealthScreenshotImportState.Success(
+                    summary = summary,
+                    records = records,
+                    warnings = analysis.warnings,
+                    uploaded = syncResult?.isSuccess == true,
+                    syncMessage = syncResult?.exceptionOrNull()?.message,
+                )
+            }.getOrElse { error ->
+                HealthScreenshotImportState.Error(error.message ?: "运动详情识别失败，请稍后重试")
+            }
         }
     }
 
@@ -217,6 +236,7 @@ sealed interface PersonalSyncState {
 sealed interface HealthScreenshotImportState {
     data object Idle : HealthScreenshotImportState
     data object Analyzing : HealthScreenshotImportState
+    data object Duplicate : HealthScreenshotImportState
     data class Success(
         val summary: WorkoutImportSummary,
         val records: List<WorkoutRecord>,
