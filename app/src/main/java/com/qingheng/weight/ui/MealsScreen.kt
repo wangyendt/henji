@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,6 +44,8 @@ import com.qingheng.weight.data.MealRecord
 import com.qingheng.weight.meal.CodexTaskClient
 import com.qingheng.weight.meal.MealAnalysis
 import com.qingheng.weight.settings.AppSettings
+import com.qingheng.weight.share.ShareCardContent
+import com.qingheng.weight.share.toMealShareCard
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
@@ -56,7 +59,7 @@ import java.util.UUID
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-fun MealsScreen(vm: AppViewModel) {
+fun MealsScreen(vm: AppViewModel, shareCard: (ShareCardContent) -> Unit = {}) {
     val meals by vm.meals.collectAsState()
     val allFoodItems by vm.mealFoodItems.collectAsState()
     val foodFrequencies by vm.foodFrequencies.collectAsState()
@@ -166,6 +169,7 @@ fun MealsScreen(vm: AppViewModel) {
                         selectedMealId = meal.id
                     }
                 },
+                onShare = { shareCard(meal.toMealShareCard()) },
             )
         }
         if (meals.isEmpty()) {
@@ -299,6 +303,7 @@ private fun MealRecordCard(
     selectionMode: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
+    onShare: () -> Unit,
 ) {
     Card(
         onClick = onClick,
@@ -363,7 +368,12 @@ private fun MealRecordCard(
                     )
                 }
             }
-            if (!selectionMode) Icon(Icons.Outlined.ChevronRight, "查看详情", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!selectionMode) {
+                IconButton(onClick = onShare) {
+                    Icon(Icons.Outlined.Share, "分享这条饮食记录", tint = Emerald)
+                }
+                Icon(Icons.Outlined.ChevronRight, "查看详情", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

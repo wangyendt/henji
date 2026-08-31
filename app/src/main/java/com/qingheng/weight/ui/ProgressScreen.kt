@@ -38,13 +38,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.qingheng.weight.data.*
-import com.qingheng.weight.share.DailyMealsShareCard
 import com.qingheng.weight.share.DailyWorkoutsShareCard
-import com.qingheng.weight.share.MealShareEntry
 import com.qingheng.weight.share.ShareCardContent
 import com.qingheng.weight.share.ShareTrendPoint
 import com.qingheng.weight.share.TrendShareCard
 import com.qingheng.weight.share.WorkoutShareEntry
+import com.qingheng.weight.share.toDailyMealsShareCard
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -637,7 +636,7 @@ private fun MeasurementCalendar(
                 Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
                 fontWeight = FontWeight.Bold,
             )
-            DayMealSummary(selectedDate, selectedMeals, onOpenMeal, shareCard)
+            DayMealSummary(selectedMeals, onOpenMeal, shareCard)
             HorizontalDivider()
             DayWorkoutSummary(selectedDate, selectedWorkouts, deleteWorkout, shareCard)
             HorizontalDivider()
@@ -885,7 +884,6 @@ private fun WorkoutSummaryRow(workout: WorkoutRecord, delete: (WorkoutRecord) ->
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun DayMealSummary(
-    date: LocalDate,
     summary: DailyMealSummary?,
     onOpenMeal: (MealRecord) -> Unit,
     shareCard: (ShareCardContent) -> Unit,
@@ -894,7 +892,7 @@ private fun DayMealSummary(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("饮食汇总", Modifier.weight(1f), fontWeight = FontWeight.Bold)
             TextButton(
-                onClick = { summary?.let { shareCard(it.toShareCard(date)) } },
+                onClick = { summary?.let { shareCard(it.toDailyMealsShareCard()) } },
                 enabled = summary != null,
             ) {
                 Icon(Icons.Outlined.Share, null, Modifier.size(18.dp))
@@ -1089,18 +1087,6 @@ private fun TrendMetric.format(
 private fun Double.signed(metric: TrendMetric, weightUnit: WeightUnit): String =
     if (metric.isMass) weightUnit.signedWeightFromKg(this)
     else "${if (this > 0) "+" else ""}${metric.format(this, weightUnit)}"
-
-private fun DailyMealSummary.toShareCard(date: LocalDate) = DailyMealsShareCard(
-    dateTitle = date.format(shareDateFormatter),
-    calorieRange = calorieRange(calorieLow, calorieHigh),
-    entries = meals.map { entry ->
-        MealShareEntry(
-            mealTypeAndTime = "${entry.meal.mealType} · ${entry.meal.createdAt.asDate("HH:mm")}",
-            foods = entry.meal.foodNames,
-            calories = calorieRange(entry.meal.calorieLow, entry.meal.calorieHigh),
-        )
-    },
-)
 
 private fun List<WorkoutRecord>.toShareCard(date: LocalDate) = DailyWorkoutsShareCard(
     dateTitle = date.format(shareDateFormatter),

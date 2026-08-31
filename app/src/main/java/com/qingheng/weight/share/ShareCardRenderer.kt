@@ -2,10 +2,12 @@ package com.qingheng.weight.share
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.net.Uri
 import androidx.core.content.FileProvider
@@ -21,6 +23,7 @@ class ShareCardRenderer(private val context: Context) {
             drawHeader(this, content)
             when (content) {
                 is TrendShareCard -> drawTrend(this, content)
+                is MealShareCard -> drawMeal(this, content)
                 is DailyMealsShareCard -> drawMeals(this, content)
                 is DailyWorkoutsShareCard -> drawWorkouts(this, content)
             }
@@ -42,11 +45,83 @@ class ShareCardRenderer(private val context: Context) {
         canvas.text("衡迹", 104f, 132f, 42f, EMERALD, bold = true)
         val tag = when (content) {
             is TrendShareCard -> "身体趋势"
+            is MealShareCard -> "饮食记录"
             is DailyMealsShareCard -> "每日饮食"
             is DailyWorkoutsShareCard -> "运动记录"
         }
         canvas.roundedRect(818f, 88f, 968f, 142f, 27f, MINT)
         canvas.centeredText(tag, 893f, 125f, 25f, EMERALD, bold = true)
+    }
+
+    private fun drawMeal(canvas: Canvas, content: MealShareCard) {
+        canvas.text(content.mealType, 104f, 236f, 56f, INK, bold = true)
+        canvas.text(content.dateTitle, 104f, 284f, 28f, MUTED)
+
+        val photoBounds = RectF(104f, 330f, 976f, 804f)
+        val photoDrawn = content.imageUri?.let { canvas.drawMealPhoto(it, photoBounds) } == true
+        if (!photoDrawn) {
+            canvas.roundedRect(
+                photoBounds.left,
+                photoBounds.top,
+                photoBounds.right,
+                photoBounds.bottom,
+                32f,
+                MEAL_PANEL,
+            )
+            canvas.centeredText("今日好好吃饭", photoBounds.centerX(), photoBounds.centerY() + 10f, 38f, MEAL_INK, bold = true)
+        }
+
+        canvas.roundedRect(104f, 834f, 976f, 1138f, 30f, PANEL)
+        canvas.text("本餐摄入", 140f, 892f, 25f, MUTED)
+        canvas.rightText("${content.calorieRange} kcal", 940f, 898f, 42f, MEAL_INK, bold = true)
+        canvas.ellipsizedText(content.foods, 140f, 970f, 800f, 35f, INK, bold = true)
+
+        val nutrients = listOfNotNull(
+            content.protein?.let { "蛋白质  $it" },
+            content.carbohydrates?.let { "碳水  $it" },
+            content.fat?.let { "脂肪  $it" },
+        )
+        if (nutrients.isNotEmpty()) {
+            canvas.text(nutrients.joinToString("     "), 140f, 1050f, 27f, EMERALD, bold = true)
+        } else {
+            canvas.text("记录每一餐，看见每一次坚持", 140f, 1050f, 27f, MUTED)
+        }
+    }
+
+    private fun Canvas.drawMealPhoto(uriString: String, destination: RectF): Boolean {
+        val bitmap = runCatching {
+            decodeSampledBitmap(uriString, destination.width().toInt(), destination.height().toInt())
+        }.getOrNull() ?: return false
+        val bitmapAspect = bitmap.width.toFloat() / bitmap.height
+        val destinationAspect = destination.width() / destination.height()
+        val source = if (bitmapAspect > destinationAspect) {
+            val sourceWidth = (bitmap.height * destinationAspect).toInt()
+            val left = (bitmap.width - sourceWidth) / 2
+            Rect(left, 0, left + sourceWidth, bitmap.height)
+        } else {
+            val sourceHeight = (bitmap.width / destinationAspect).toInt()
+            val top = (bitmap.height - sourceHeight) / 2
+            Rect(0, top, bitmap.width, top + sourceHeight)
+        }
+        save()
+        clipPath(Path().apply { addRoundRect(destination, 32f, 32f, Path.Direction.CW) })
+        drawBitmap(bitmap, source, destination, paint(color = Color.WHITE).apply { isFilterBitmap = true })
+        restore()
+        bitmap.recycle()
+        return true
+    }
+
+    private fun decodeSampledBitmap(uriString: String, targetWidth: Int, targetHeight: Int): Bitmap? {
+        val uri = Uri.parse(uriString)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sampleSize = 1
+        while (bounds.outWidth / sampleSize > targetWidth * 2 && bounds.outHeight / sampleSize > targetHeight * 2) {
+            sampleSize *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        return context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
     }
 
     private fun drawTrend(canvas: Canvas, content: TrendShareCard) {
@@ -164,8 +239,16 @@ class ShareCardRenderer(private val context: Context) {
         drawText(value, x, baseline, paint)
     }
 
-    private fun Canvas.ellipsizedText(value: String, x: Float, baseline: Float, maxWidth: Float, size: Float, color: Int) {
-        val paint = textPaint(size, color)
+    private fun Canvas.ellipsizedText(
+        value: String,
+        x: Float,
+        baseline: Float,
+        maxWidth: Float,
+        size: Float,
+        color: Int,
+        bold: Boolean = false,
+    ) {
+        val paint = textPaint(size, color, bold)
         if (paint.measureText(value) <= maxWidth) {
             drawText(value, x, baseline, paint)
             return

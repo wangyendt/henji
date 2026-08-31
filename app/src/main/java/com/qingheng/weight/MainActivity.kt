@@ -211,7 +211,7 @@ private fun HengJiRoot(
                     requestHealthConnectPermissions = requestHealthConnectPermissions,
                 )
             }
-            composable("meals") { MealsScreen(vm) }
+            composable("meals") { MealsScreen(vm, shareCard) }
             composable("settings") { SettingsScreen(vm) }
         }
         HealthScreenshotImportDialog(vm)

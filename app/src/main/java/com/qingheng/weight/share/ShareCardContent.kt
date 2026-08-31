@@ -29,6 +29,20 @@ data class MealShareEntry(
     val calories: String,
 )
 
+data class MealShareCard(
+    val dateTitle: String,
+    val mealType: String,
+    val foods: String,
+    val calorieRange: String,
+    val protein: String?,
+    val carbohydrates: String?,
+    val fat: String?,
+    val imageUri: String?,
+) : ShareCardContent {
+    override val shareText: String = "$dateTitle $mealType · 衡迹"
+    override val fileStem: String = "meal"
+}
+
 data class DailyMealsShareCard(
     val dateTitle: String,
     val calorieRange: String,

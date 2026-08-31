@@ -2,6 +2,9 @@ package com.qingheng.weight.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,17 +18,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.qingheng.weight.data.MealFoodItem
 import com.qingheng.weight.data.MealRecord
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,7 +47,15 @@ fun MealDetailSheet(
     onDelete: (() -> Unit)? = null,
 ) {
     var showLargeImage by remember(meal.id) { mutableStateOf(false) }
+    var showZoomHint by remember(meal.id) { mutableStateOf(false) }
     var confirmDelete by remember(meal.id) { mutableStateOf(false) }
+    LaunchedEffect(showLargeImage) {
+        if (showLargeImage) {
+            showZoomHint = true
+            delay(3_000)
+            showZoomHint = false
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -152,12 +170,21 @@ fun MealDetailSheet(
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                AsyncImage(
-                    meal.imageUri,
-                    meal.foodNames,
-                    Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
-                )
+                ZoomableMealImage(meal.imageUri, meal.foodNames)
+                if (showZoomHint) {
+                    Surface(
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp),
+                        color = Color.Black.copy(alpha = 0.72f),
+                        contentColor = Color.White,
+                        shape = CircleShape,
+                    ) {
+                        Text(
+                            "双击放大或还原 · 双指缩放 · 拖动查看",
+                            Modifier.padding(horizontal = 15.dp, vertical = 9.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
                 IconButton(
                     onClick = { showLargeImage = false },
                     Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(14.dp)
@@ -185,6 +212,90 @@ fun MealDetailSheet(
         )
     }
 }
+
+@Composable
+private fun ZoomableMealImage(imageUri: String, contentDescription: String) {
+    var scale by remember(imageUri) { mutableFloatStateOf(1f) }
+    var offset by remember(imageUri) { mutableStateOf(Offset.Zero) }
+    var viewportSize by remember(imageUri) { mutableStateOf(IntSize.Zero) }
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        val previousScale = scale
+        val nextScale = (previousScale * zoomChange).coerceIn(MIN_IMAGE_SCALE, MAX_IMAGE_SCALE)
+        if (nextScale <= MIN_IMAGE_SCALE + 0.01f) {
+            scale = MIN_IMAGE_SCALE
+            offset = Offset.Zero
+        } else {
+            val scaleRatio = nextScale / previousScale
+            scale = nextScale
+            offset = constrainImageOffset(
+                candidate = Offset(
+                    x = offset.x * scaleRatio + panChange.x,
+                    y = offset.y * scaleRatio + panChange.y,
+                ),
+                scale = nextScale,
+                viewportSize = viewportSize,
+            )
+        }
+    }
+
+    Box(
+        Modifier.fillMaxSize()
+            .clipToBounds()
+            .onSizeChanged {
+                viewportSize = it
+                offset = constrainImageOffset(offset, scale, it)
+            }
+            .pointerInput(imageUri, viewportSize) {
+                detectTapGestures(
+                    onDoubleTap = { tap ->
+                        if (scale > MIN_IMAGE_SCALE + 0.01f) {
+                            scale = MIN_IMAGE_SCALE
+                            offset = Offset.Zero
+                        } else {
+                            scale = DOUBLE_TAP_IMAGE_SCALE
+                            val centerX = viewportSize.width / 2f
+                            val centerY = viewportSize.height / 2f
+                            offset = constrainImageOffset(
+                                candidate = Offset(
+                                    x = (centerX - tap.x) * (DOUBLE_TAP_IMAGE_SCALE - 1f),
+                                    y = (centerY - tap.y) * (DOUBLE_TAP_IMAGE_SCALE - 1f),
+                                ),
+                                scale = DOUBLE_TAP_IMAGE_SCALE,
+                                viewportSize = viewportSize,
+                            )
+                        }
+                    },
+                )
+            }
+            .transformable(transformState),
+    ) {
+        AsyncImage(
+            imageUri,
+            contentDescription,
+            Modifier.fillMaxSize().graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = offset.x
+                translationY = offset.y
+            },
+            contentScale = ContentScale.Fit,
+        )
+    }
+}
+
+internal fun constrainImageOffset(candidate: Offset, scale: Float, viewportSize: IntSize): Offset {
+    if (scale <= MIN_IMAGE_SCALE || viewportSize == IntSize.Zero) return Offset.Zero
+    val maximumX = viewportSize.width * (scale - 1f) / 2f
+    val maximumY = viewportSize.height * (scale - 1f) / 2f
+    return Offset(
+        x = candidate.x.coerceIn(-maximumX, maximumX),
+        y = candidate.y.coerceIn(-maximumY, maximumY),
+    )
+}
+
+private const val MIN_IMAGE_SCALE = 1f
+private const val DOUBLE_TAP_IMAGE_SCALE = 2.5f
+private const val MAX_IMAGE_SCALE = 5f
 
 @Composable
 private fun MealNutritionSummary(meal: MealRecord) {
