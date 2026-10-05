@@ -8,6 +8,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.qingheng.weight.meal.CodexTaskClient
+import com.qingheng.weight.meal.CodexModelCatalog
+import kotlinx.coroutines.CancellationException
 import com.qingheng.weight.data.Sex
 import com.qingheng.weight.data.UserProfile
 
@@ -24,6 +27,32 @@ fun SettingsScreen(vm: AppViewModel) {
     var sex by remember(current.profile.sex) { mutableStateOf(current.profile.sex) }
     var url by remember(current.serviceUrl) { mutableStateOf(current.serviceUrl) }
     var token by remember(current.serviceToken) { mutableStateOf(current.serviceToken) }
+    var model by remember(current.serviceModel) { mutableStateOf(current.serviceModel) }
+    var reasoning by remember(current.serviceReasoning) { mutableStateOf(current.serviceReasoning) }
+    var catalog by remember(url, token) { mutableStateOf<CodexModelCatalog?>(null) }
+    var catalogError by remember(url, token) { mutableStateOf("") }
+    var catalogLoading by remember(url, token) { mutableStateOf(false) }
+    var refreshKey by remember(url, token) { mutableIntStateOf(0) }
+    var modelMenu by remember { mutableStateOf(false) }
+    var reasoningMenu by remember { mutableStateOf(false) }
+    LaunchedEffect(url, token, refreshKey) {
+        if (url.isBlank() || token.isBlank()) return@LaunchedEffect
+        // Do not send the saved token to partially typed/unconfirmed hosts.
+        if (refreshKey == 0 && (url != current.serviceUrl || token != current.serviceToken)) return@LaunchedEffect
+        kotlinx.coroutines.delay(600)
+        catalogLoading = true
+        catalogError = ""
+        try {
+            catalog = CodexTaskClient(url.trim(), token.trim()).fetchModels(refresh = refreshKey > 0)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            catalogError = error.message ?: "读取模型目录失败"
+        } finally {
+            catalogLoading = false
+        }
+    }
+    val selectedModel = catalog?.models?.find { it.id == model }
     var personalUrl by remember(current.personalSyncUrl) { mutableStateOf(current.personalSyncUrl) }
     var personalToken by remember(current.personalSyncToken) { mutableStateOf(current.personalSyncToken) }
     val personalSyncState by vm.personalSyncState.collectAsState()
@@ -70,7 +99,53 @@ fun SettingsScreen(vm: AppViewModel) {
             Text("填写 CodexTask 服务的完整 HTTPS 地址或局域网地址，以及专用令牌。反向代理地址可以包含路径前缀。", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(url, { url = it }, label = { Text("服务地址") }, placeholder = { Text("https://example.com/services/codex-task") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             OutlinedTextField(token, { token = it }, label = { Text("Service Token") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Button({ vm.updateService(url, token); saved = true }, Modifier.fillMaxWidth()) { Text("保存服务配置") }
+            OutlinedButton(
+                { refreshKey++ }, Modifier.fillMaxWidth(),
+                enabled = !catalogLoading && url.isNotBlank() && token.isNotBlank(),
+            ) { Text(if (catalogLoading) "正在读取模型…" else "刷新模型列表") }
+            if (catalogError.isNotEmpty()) Text(catalogError + "；保留当前选择，可稍后重试。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            catalog?.let { list ->
+                Text("服务器返回 ${list.models.size} 个模型" + if (list.stale) "（缓存，刷新失败）" else "", style = MaterialTheme.typography.bodySmall)
+                if (list.updatedAt.isNotBlank()) Text("目录时间：${list.updatedAt}", style = MaterialTheme.typography.bodySmall)
+            }
+            Box {
+                OutlinedTextField(
+                    model, { model = it; reasoning = "" },
+                    label = { Text("模型 ID（留空跟随服务）") },
+                    trailingIcon = { TextButton({ modelMenu = true }) { Text("选择") } },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                )
+                DropdownMenu(modelMenu, { modelMenu = false }) {
+                    DropdownMenuItem(text = { Text("跟随服务器默认") }, onClick = { model = ""; reasoning = ""; modelMenu = false })
+                    catalog?.models?.forEach { option ->
+                        DropdownMenuItem(text = { Text(option.displayName) }, onClick = {
+                            model = option.id; reasoning = option.defaultReasoning; modelMenu = false
+                        })
+                    }
+                }
+            }
+            Box {
+                OutlinedTextField(
+                    reasoning, { reasoning = it },
+                    label = { Text("思考等级（留空跟随服务）") },
+                    readOnly = selectedModel != null,
+                    trailingIcon = { TextButton({ reasoningMenu = true }) { Text("选择") } },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                )
+                DropdownMenu(reasoningMenu, { reasoningMenu = false }) {
+                    DropdownMenuItem(text = { Text("跟随服务器默认") }, onClick = { reasoning = ""; reasoningMenu = false })
+                    selectedModel?.reasoningLevels?.forEach { effort ->
+                        DropdownMenuItem(text = { Text(effort) }, onClick = { reasoning = effort; reasoningMenu = false })
+                    }
+                }
+            }
+            if (model.isNotBlank() && selectedModel == null && catalog != null) {
+                Text("该模型未在目录中，保留手动输入；可用性以任务实际响应为准。", style = MaterialTheme.typography.bodySmall)
+            }
+            val unsupportedReasoning = selectedModel != null && reasoning.isNotBlank() && reasoning !in selectedModel.reasoningLevels
+            if (unsupportedReasoning) Text("当前思考等级未被该模型声明，请重新选择。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Text("模型和思考等级用于饮食识别、运动截图识别；刷新目录不会自动改变已保存选择。", style = MaterialTheme.typography.bodySmall)
+            Button({ vm.updateService(url.trim(), token.trim(), model, reasoning); saved = true }, Modifier.fillMaxWidth(), enabled = !unsupportedReasoning) { Text("保存服务配置") }
         }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("个人数据同步", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium)

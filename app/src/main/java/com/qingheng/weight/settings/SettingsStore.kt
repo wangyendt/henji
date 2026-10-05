@@ -20,6 +20,8 @@ data class AppSettings(
     val profile: UserProfile = UserProfile(),
     val serviceUrl: String = "http://10.0.2.2:7777",
     val serviceToken: String = "",
+    val serviceModel: String = "",
+    val serviceReasoning: String = "",
     val personalSyncUrl: String = DEFAULT_PERSONAL_SYNC_URL,
     val personalSyncToken: String = "",
     val weightUnit: WeightUnit = WeightUnit.KILOGRAM,
@@ -35,6 +37,8 @@ class SettingsStore(private val context: Context) {
         val goalWeight = doublePreferencesKey("goal_weight")
         val serviceUrl = stringPreferencesKey("service_url")
         val serviceToken = stringPreferencesKey("service_token")
+        val serviceModel = stringPreferencesKey("service_model")
+        val serviceReasoning = stringPreferencesKey("service_reasoning")
         val personalSyncUrl = stringPreferencesKey("personal_sync_url")
         val personalSyncToken = stringPreferencesKey("personal_sync_token")
         val personalSyncUrlMigrationVersion = intPreferencesKey("personal_sync_url_migration_version")
@@ -53,6 +57,8 @@ class SettingsStore(private val context: Context) {
             ),
             serviceUrl = p[Keys.serviceUrl] ?: "http://10.0.2.2:7777",
             serviceToken = p[Keys.serviceToken] ?: "",
+            serviceModel = p[Keys.serviceModel] ?: "",
+            serviceReasoning = p[Keys.serviceReasoning] ?: "",
             personalSyncUrl = resolvePersonalSyncUrl(
                 storedUrl = p[Keys.personalSyncUrl],
                 migrationVersion = p[Keys.personalSyncUrlMigrationVersion] ?: 0,
@@ -71,8 +77,9 @@ class SettingsStore(private val context: Context) {
         it[Keys.goalWeight] = profile.goalWeightKg
     }
 
-    suspend fun updateService(url: String, token: String) = context.dataStore.edit {
-        it[Keys.serviceUrl] = url.trimEnd('/'); it[Keys.serviceToken] = token
+    suspend fun updateService(url: String, token: String, model: String = "", reasoning: String = "") = context.dataStore.edit {
+        it[Keys.serviceUrl] = url.trimEnd('/'); it[Keys.serviceToken] = token.trim()
+        it[Keys.serviceModel] = model.trim(); it[Keys.serviceReasoning] = reasoning.trim()
     }
 
     suspend fun updatePersonalSync(url: String, token: String) = context.dataStore.edit {

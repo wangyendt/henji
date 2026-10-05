@@ -415,7 +415,7 @@ private fun AddMealDialog(vm: AppViewModel, settings: AppSettings, imageUri: Str
         error = null
         scope.launch {
             runCatching {
-                CodexTaskClient(settings.serviceUrl, settings.serviceToken)
+                CodexTaskClient(settings.serviceUrl, settings.serviceToken, model = settings.serviceModel, reasoning = settings.serviceReasoning)
                     .analyze(context.contentResolver, Uri.parse(imageUri))
             }.onSuccess { result ->
                 analysis = result

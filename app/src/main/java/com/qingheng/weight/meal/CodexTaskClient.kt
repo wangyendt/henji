@@ -48,6 +48,8 @@ class CodexTaskClient(
     private val serviceToken: String,
     private val httpClient: OkHttpClient = defaultCodexTaskHttpClient(),
     private val polling: CodexTaskPollingOptions = CodexTaskPollingOptions(),
+    private val model: String = "",
+    private val reasoning: String = "medium",
 ) {
     private val baseUrl: HttpUrl = serviceBaseUrl.trimEnd('/').toHttpUrlOrNull()
         ?.let { parsed ->
@@ -62,6 +64,12 @@ class CodexTaskClient(
 
     init {
         if (serviceToken.isBlank()) throw CodexTaskException.Configuration("CodexTask Token 不能为空")
+    }
+
+    suspend fun fetchModels(refresh: Boolean = false): CodexModelCatalog {
+        val url = resolveSameOrigin("/v1/models").newBuilder()
+            .apply { if (refresh) addQueryParameter("refresh", "true") }.build()
+        return CodexModelCatalog.parse(executeJson(Request.Builder().url(url).get().build()))
     }
 
     /** Reads an Android `content://` image, submits it, polls the job, and parses the result. */
@@ -144,7 +152,8 @@ class CodexTaskClient(
         val body = JSONObject().apply {
             put("prompt", prompt)
             put("backend", "direct")
-            put("reasoning", "medium")
+            if (model.isNotBlank()) put("model", model.trim())
+            if (reasoning.isNotBlank()) put("reasoning", reasoning.trim())
             put("schema", JSONObject(schema))
             put("images", JSONArray().put(JSONObject().apply {
                 put("name", fileName)

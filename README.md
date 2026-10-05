@@ -65,6 +65,10 @@ codex-task serve --host 0.0.0.0 --port 7777 --token-file TOKEN_FILE
 - Android 真机：`http://电脑的局域网地址:7777`
 - Service Token：由 `codex-task token create` 生成的、只授予 `text` 的 Token
 
+填写地址和 Token 后，设置页自动通过 `GET /v1/models` 读取模型目录，也可以点击“刷新模型列表”。选择模型后，思考等级跟随该模型的服务端声明；支持手动输入尚未列出的模型 ID。留空表示跟随服务默认，点击“保存服务配置”后同时用于餐食与运动截图识别。刷新失败时保留已有选择并显示提示，不静默替换模型。
+
+需要 CodexTask 的模型目录 API（0.2.17 起）。目录陈旧时会显示缓存提示。以后服务器升级 `@openai/codex` CLI 并刷新目录，就能展示其新模型/思考等级；协议兼容性变化仍需升级 CodexTask。旧服务返回 404 时请先升级服务器，已有识别功能保持可用。
+
 照片仅在主动识别时发送到你配置的服务。Token 保存在 Android DataStore 中，不写入源码和日志。正式分发时建议把 Token 改存 Android Keystore 加密存储，并给服务增加 TLS 反向代理。
 
 ## 参考

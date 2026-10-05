@@ -81,7 +81,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             healthScreenshotImportState.value = HealthScreenshotImportState.Analyzing
             healthScreenshotImportState.value = runCatching {
-                val analysis = CodexTaskClient(current.serviceUrl, current.serviceToken)
+                val analysis = CodexTaskClient(current.serviceUrl, current.serviceToken, model = current.serviceModel, reasoning = current.serviceReasoning)
                     .analyzeHealthScreenshot(resolver, uri)
                 val records = analysis.toRecords()
                 val summary = app.repository.saveWorkoutRecords(records)
@@ -157,7 +157,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateProfile(profile: UserProfile) = viewModelScope.launch { app.settings.updateProfile(profile) }
-    fun updateService(url: String, token: String) = viewModelScope.launch { app.settings.updateService(url, token) }
+    fun updateService(url: String, token: String, model: String, reasoning: String) = viewModelScope.launch { app.settings.updateService(url, token, model, reasoning) }
     fun updatePersonalSync(url: String, token: String) = viewModelScope.launch {
         app.settings.updatePersonalSync(url, token)
         syncPersonalDataInternal()

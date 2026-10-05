@@ -31,6 +31,11 @@ class CodexTaskClientTest {
         val callNumber = AtomicInteger()
         val interceptor = Interceptor { chain ->
             requests += chain.request()
+            if (chain.request().method == "POST") {
+                val body = JSONObject(Buffer().also { chain.request().body?.writeTo(it) }.readUtf8())
+                assertEquals("future-model", body.getString("model"))
+                assertEquals("future-effort", body.getString("reasoning"))
+            }
             val responseJson = if (callNumber.getAndIncrement() == 0) {
                 """{"jobId":"job-1","status":"queued","statusUrl":"/v1/jobs/job-1"}"""
             } else {
@@ -49,6 +54,7 @@ class CodexTaskClientTest {
             serviceToken = UUID.randomUUID().toString(),
             httpClient = OkHttpClient.Builder().addInterceptor(interceptor).build(),
             polling = CodexTaskPollingOptions(intervalMillis = 0, timeoutMillis = 2_000),
+            model = "future-model", reasoning = "future-effort",
         )
 
         runCatching { client.analyzeImage(byteArrayOf(1, 2, 3), "image/jpeg") }
