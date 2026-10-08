@@ -23,4 +23,11 @@ class MainNavigationTest {
 
         composeRule.onNodeWithText("衡迹").assertIsDisplayed()
     }
+
+    @Test
+    fun settingsDestinationOpensWithoutCrashing() {
+        composeRule.onNodeWithText("我的").performClick()
+
+        composeRule.onNodeWithText("身体资料").assertIsDisplayed()
+    }
 }

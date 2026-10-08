@@ -1,5 +1,10 @@
 package com.qingheng.weight.ui
 
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +22,21 @@ import com.qingheng.weight.data.UserProfile
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(vm: AppViewModel) {
+    val context = LocalContext.current.applicationContext
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(vm, lifecycleOwner, context) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var toast: Toast? = null
+            try {
+                vm.settingsFeedback.collect { message ->
+                    toast?.cancel()
+                    toast = Toast.makeText(context, message, Toast.LENGTH_SHORT).also { it.show() }
+                }
+            } finally {
+                toast?.cancel()
+            }
+        }
+    }
     val current by vm.settings.collectAsState()
     var height by remember(current.profile.heightCm) { mutableStateOf(current.profile.heightCm.toString()) }
     var year by remember(current.profile.birthYear) { mutableStateOf(current.profile.birthYear.toString()) }
@@ -57,7 +77,6 @@ fun SettingsScreen(vm: AppViewModel) {
     var personalToken by remember(current.personalSyncToken) { mutableStateOf(current.personalSyncToken) }
     val personalSyncState by vm.personalSyncState.collectAsState()
     val pendingCount by vm.syncPendingCount.collectAsState()
-    var saved by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         ScreenHeader("我的", "个人资料决定身体成分估算结果")
@@ -90,7 +109,7 @@ fun SettingsScreen(vm: AppViewModel) {
             Button({
                 val goalKg = if (current.hideAbsoluteWeight) current.profile.goalWeightKg
                     else goal.toDoubleOrNull()?.let(unit::toKilograms) ?: current.profile.goalWeightKg
-                vm.updateProfile(UserProfile(height.toIntOrNull()?.coerceIn(100, 230) ?: 170, year.toIntOrNull()?.coerceIn(1920, 2020) ?: 1990, sex, current.profile.activityLevel, goalKg)); saved = true
+                vm.updateProfile(UserProfile(height.toIntOrNull()?.coerceIn(100, 230) ?: 170, year.toIntOrNull()?.coerceIn(1920, 2020) ?: 1990, sex, current.profile.activityLevel, goalKg))
             }, Modifier.fillMaxWidth()) { Text("保存身体资料") }
         }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -145,7 +164,7 @@ fun SettingsScreen(vm: AppViewModel) {
             val unsupportedReasoning = selectedModel != null && reasoning.isNotBlank() && reasoning !in selectedModel.reasoningLevels
             if (unsupportedReasoning) Text("当前思考等级未被该模型声明，请重新选择。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             Text("模型和思考等级用于饮食识别、运动截图识别；刷新目录不会自动改变已保存选择。", style = MaterialTheme.typography.bodySmall)
-            Button({ vm.updateService(url.trim(), token.trim(), model, reasoning); saved = true }, Modifier.fillMaxWidth(), enabled = !unsupportedReasoning) { Text("保存服务配置") }
+            Button({ vm.updateService(url.trim(), token.trim(), model, reasoning) }, Modifier.fillMaxWidth(), enabled = !unsupportedReasoning) { Text("保存服务配置") }
         }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("个人数据同步", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium)
@@ -193,7 +212,6 @@ fun SettingsScreen(vm: AppViewModel) {
             Button(
                 {
                     vm.updatePersonalSync(personalUrl, personalToken)
-                    saved = true
                 },
                 Modifier.fillMaxWidth(),
                 enabled = personalSyncState !is PersonalSyncState.Syncing,
@@ -202,8 +220,6 @@ fun SettingsScreen(vm: AppViewModel) {
         Card(Modifier.fillMaxWidth().padding(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Text("饮食照片仅在你主动识别时发送到 CodexTask，不进入个人同步数据库。身体成分不是医疗诊断结果。", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
         }
-        if (saved) LaunchedEffect(Unit) { kotlinx.coroutines.delay(1800); saved = false }
-        if (saved) Text("已保存", Modifier.padding(horizontal = 20.dp), color = Emerald)
         Spacer(Modifier.height(24.dp))
     }
 }

@@ -13,6 +13,7 @@ import com.qingheng.weight.meal.CodexTaskClient
 import com.qingheng.weight.settings.AppSettings
 import com.qingheng.weight.sync.PersonalSyncResult
 import com.qingheng.weight.sync.PersonalSyncScheduler
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -29,6 +30,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val workoutRecords = app.repository.workoutRecords.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val settings = app.settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings())
     val syncPendingCount = app.personalSync.pendingCount.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    private val _settingsFeedback = MutableSharedFlow<String>()
+    val settingsFeedback = _settingsFeedback.asSharedFlow()
     val isSaving = MutableStateFlow(false)
     val fitdaysImportState = MutableStateFlow<FitdaysImportState>(FitdaysImportState.Idle)
     val healthSyncState = MutableStateFlow<HealthSyncState>(HealthSyncState.Checking)
@@ -156,11 +159,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         syncPersonalDataInternal()
     }
 
-    fun updateProfile(profile: UserProfile) = viewModelScope.launch { app.settings.updateProfile(profile) }
-    fun updateService(url: String, token: String, model: String, reasoning: String) = viewModelScope.launch { app.settings.updateService(url, token, model, reasoning) }
+    fun updateProfile(profile: UserProfile) = viewModelScope.launch {
+        saveSettingsWithFeedback("身体资料已保存", _settingsFeedback::emit) {
+            app.settings.updateProfile(profile)
+        }
+    }
+    fun updateService(url: String, token: String, model: String, reasoning: String) = viewModelScope.launch {
+        saveSettingsWithFeedback("服务配置已保存", _settingsFeedback::emit) {
+            app.settings.updateService(url, token, model, reasoning)
+        }
+    }
     fun updatePersonalSync(url: String, token: String) = viewModelScope.launch {
-        app.settings.updatePersonalSync(url, token)
-        syncPersonalDataInternal()
+        val enabled = url.isNotBlank() && token.isNotBlank()
+        val saved = saveSettingsWithFeedback(
+            if (enabled) "同步配置已保存，正在同步…" else "同步配置已保存，尚未启用同步",
+            _settingsFeedback::emit,
+        ) { app.settings.updatePersonalSync(url, token) }
+        if (!saved) return@launch
+        when (syncPersonalDataInternal()) {
+            is PersonalSyncState.Success -> _settingsFeedback.emit("个人数据同步完成")
+            is PersonalSyncState.Error -> _settingsFeedback.emit("配置已保存，但同步失败，请查看页面提示")
+            else -> Unit
+        }
         PersonalSyncScheduler.enqueueNow(getApplication())
     }
     fun syncPersonalData() = viewModelScope.launch { syncPersonalDataInternal() }
@@ -191,16 +211,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         PersonalSyncScheduler.enqueueNow(getApplication())
     }
 
-    private suspend fun syncPersonalDataInternal() {
+    private suspend fun syncPersonalDataInternal(): PersonalSyncState {
         val current = app.settings.values.first()
         if (current.personalSyncUrl.isBlank() || current.personalSyncToken.isBlank()) {
             personalSyncState.value = PersonalSyncState.Disabled
-            return
+            return PersonalSyncState.Disabled
         }
         personalSyncState.value = PersonalSyncState.Syncing
-        personalSyncState.value = runCatching {
+        val result = try {
             PersonalSyncState.Success(app.personalSync.sync(current.personalSyncUrl, current.personalSyncToken))
-        }.getOrElse { PersonalSyncState.Error(it.message ?: "个人数据同步失败") }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            PersonalSyncState.Error(error.message ?: "个人数据同步失败")
+        }
+        personalSyncState.value = result
+        return result
     }
 }
 
